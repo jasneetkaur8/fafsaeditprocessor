@@ -102,6 +102,9 @@ rules:
       - name: negative parent income
         input: { income: { studentIncome: 100, parentIncome: -0.01 } }
         expect: FAILED
+      - name: negative amount smaller than one cent
+        input: { income: { studentIncome: -0.001 } }
+        expect: FAILED
 
   - id: HOUSEHOLD_COLLEGE_COUNT
     # A warning, not an error: the counts contradict each other, which needs review, but nothing

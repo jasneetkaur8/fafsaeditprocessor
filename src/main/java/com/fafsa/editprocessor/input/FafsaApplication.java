@@ -51,8 +51,9 @@ public record FafsaApplication(
 
     /**
      * Required; {@link ApplicationValidator} also checks that at least one amount is provided.
-     * Amounts keep at most 2 decimal places: further digits are dropped, not rounded
-     * (5000.129 becomes 5000.12).
+     * Amounts keep at most 2 decimal places. Further digits are dropped toward the lower amount
+     * (5000.129 becomes 5000.12), so a negative amount stays negative: -0.001 becomes -0.01, not
+     * 0.00, and the {@code NON_NEGATIVE_INCOME} rule still reports it.
      */
     public record Income(
             BigDecimal studentIncome,
@@ -64,7 +65,7 @@ public record FafsaApplication(
         }
 
         private static BigDecimal toCents(BigDecimal amount) {
-            return amount != null && amount.scale() > 2 ? amount.setScale(2, RoundingMode.DOWN) : amount;
+            return amount != null && amount.scale() > 2 ? amount.setScale(2, RoundingMode.FLOOR) : amount;
         }
     }
 }

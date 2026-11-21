@@ -325,7 +325,8 @@ configuration.
   rather than failing the application.
 - **Household counts** default to 1 when missing (the student) and must be above 0.
 - **Income**: at least one of student or parent income must be given. Amounts keep 2 decimal
-  places; further digits are dropped, not rounded. Negative amounts pass the input checks so that
+  places; further digits are dropped toward the lower amount (`5000.129` becomes `5000.12`,
+  `-0.001` becomes `-0.01`), so a negative amount can never become zero. Negative amounts pass the input checks so that
   the `NON_NEGATIVE_INCOME` rule reports them with its message. Zero parent income counts as given.
 - **State** must be an upper-case postal abbreviation: the 50 states, DC, and the territories
   AS, GU, MP, PR, VI.
@@ -336,15 +337,15 @@ configuration.
 
 ## 12. Testing strategy
 
-Tests are layered so a failure points at its cause (94 tests, `./mvnw clean verify`):
+Tests are layered so a failure points at its cause (96 tests, `./mvnw clean verify`):
 
 | Layer | What it proves | Where |
 |---|---|---|
-| Embedded rule tests | Each of the 7 rules passes, fails and does not apply as intended (29 examples, run on every load) | `fafsa-2026-27.yaml` |
+| Embedded rule tests | Each of the 7 rules passes, fails and does not apply as intended (30 examples, run on every load) | `fafsa-2026-27.yaml` |
 | Compiler | Broken rule files are rejected with every problem listed; the real file compiles | `RuleSetCompilerTest` (10) |
 | Engine | Status from severities, `ERRORED` isolation, parallel = sequential results and order, metrics | `RuleEngineTest` (7) |
-| Input checks | Required fields, defaults, all problems reported together, income truncation | `ApplicationValidatorTest` (10) |
-| API end to end | The real rule file through HTTP: both sample applications, 20+ malformed-input cases, batch, response shape, logs without personal data, metrics | `FafsaEditResourceTest` (66) |
+| Input checks | Required fields, defaults, all problems reported together, income truncation | `ApplicationValidatorTest` (11) |
+| API end to end | The real rule file through HTTP: both sample applications, 20+ malformed-input cases, batch, response shape, logs without personal data, metrics | `FafsaEditResourceTest` (67) |
 
 The end-to-end tests use a fixed clock so the age rule gives the same answer on any day.
 

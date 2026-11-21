@@ -80,6 +80,17 @@ class ApplicationValidatorTest {
     }
 
     @Test
+    void negativeIncomeBelowOneCentStaysNegative() {
+        // Cutting toward zero would turn -0.001 into 0.00 and let it pass NON_NEGATIVE_INCOME
+        ValidatedApplication result = check(json("""
+                {%s, "income": {"studentIncome": -0.001, "parentIncome": -0.019}, "stateOfResidence": "CA"}
+                """.formatted(STUDENT)));
+
+        assertThat(result.application().income())
+                .isEqualTo(new Income(new BigDecimal("-0.01"), new BigDecimal("-0.02")));
+    }
+
+    @Test
     void parentIncomeAloneIsEnough() {
         ValidatedApplication result = check(json("""
                 {%s, "income": {"parentIncome": 65000}, "stateOfResidence": "CA"}

@@ -237,11 +237,15 @@ class FafsaEditResourceTest {
                 .andExpect(jsonPath("$.errors[0].problem").value("must have studentIncome or parentIncome"));
     }
 
-    /** Digits past the second decimal place are dropped (not rounded), as rule messages show. */
+    /**
+     * Digits past the second decimal place are dropped toward the lower amount, as rule messages
+     * show, so a negative amount below one cent stays negative instead of becoming 0.00.
+     */
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', textBlock = """
-            student income | {"studentIncome": -1000.129}                      | student income: -1000.12, parent income: not provided
-            parent income  | {"studentIncome": 1, "parentIncome": -65000.999} | student income: 1, parent income: -65000.99
+            student income           | {"studentIncome": -1000.129}                      | student income: -1000.13, parent income: not provided
+            parent income            | {"studentIncome": 1, "parentIncome": -65000.999} | student income: 1, parent income: -65001
+            less than one cent below | {"studentIncome": -0.001}                         | student income: -0.01, parent income: not provided
             """)
     void incomeBeyondTwoDecimalPlacesIsTruncated(String scenario, String incomeJson, String shown) throws Exception {
         mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(withIncome(incomeJson)))
