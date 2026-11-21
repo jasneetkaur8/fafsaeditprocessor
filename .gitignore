@@ -4,8 +4,5 @@ target/
 .vscode/
 .DS_Store
 *.log
-# Rule sets activated at runtime (Step 8) are saved here
-data/
-
 # Local-only package notes, kept on disk for reference
 package-info.java

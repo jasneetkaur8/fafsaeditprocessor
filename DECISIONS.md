@@ -1,8 +1,23 @@
 # Design Decisions
 
-_Fill in as you build (Step 0 notes go here first)._
+How the FAFSA Edit Processor is built, why, and what was assumed. Build and usage instructions are
+in [README.md](README.md).
 
 ## 1. Technology
+
+| Choice | Why |
+|---|---|
+| Java 17, Spring Boot 3.5 | Matches the team's Java/Spring stack; Spring gives HTTP, Bean Validation, health and metrics with little code |
+| [cel-java](https://github.com/google/cel-java) 0.14 | Rule expressions (section 2) |
+| Jackson (JSON and YAML) | Strict request binding; reading the rule file |
+| Bean Validation | Required fields and simple limits as annotations on the input record |
+| Micrometer (Spring Actuator) | Metrics, with no extra infrastructure |
+
+The input is a **typed Java record** (`FafsaApplication`), not a generic JSON map. Binding is
+strict: unknown fields, wrong types (`"4"` for a number, `123` for text), and quietly "repaired"
+values are rejected rather than guessed at, so a rule never runs on data the caller did not mean
+to send. The one deliberate exception: income amounts are cut to 2 decimal places.
+
 ## 2. Rule representation: CEL expressions in YAML
 
 Rules are **configuration, not code**: one YAML file (`src/main/resources/rules/fafsa-2026-27.yaml`,
@@ -35,8 +50,90 @@ CEL is **safe by design** (no I/O, no Java calls, always terminates), **type-che
 file loads**, fast (compiled once), and reads like the rule it expresses. The limit: a capability
 CEL lacks needs a small helper function in code (`ageInYears`, `isBlank` in `functions/RuleFunctions`).
 
-## 3. Runtime activation
-<!-- validate -> compile -> run embedded tests -> atomic swap; per-request snapshot; rollback -->
+## 3. Rule changes and activation
+
+**Today**: rules change with no code change, but with a restart. Edit the YAML (or point
+`FAFSA_RULES_LOCATION` at your own copy) and restart. On load the file is parsed, every expression
+is compiled and type-checked, and every rule's embedded tests run; if anything fails the service
+refuses to start, so a broken rule set can never go live. `/actuator/info` shows which version is
+active.
+
+The active rule set already sits behind an `AtomicReference`, and each request (or whole batch)
+takes one snapshot, so swapping rules at runtime would never mix old and new rules in one result.
+
+### Planned ahead: changing rules without a restart
+
+The goal is that a rule author can check a new rule set, put it live, and undo it, all without a
+restart or a deployment, and with the same guarantee as today: a rule set that fails any check
+never goes live. The design builds on what exists (the compiler, the embedded tests, the
+`AtomicReference` snapshot), so most of the work is an admin API, storage and safety around them.
+
+**Phase 1: runtime activation on one instance**
+
+1. **Admin API** (new `api/RuleAdminController`, under `/admin/ruleset`):
+
+   | Endpoint | Does |
+   |---|---|
+   | `POST /admin/ruleset/validate` | Dry run: compiles the posted YAML, runs its tests and the replay (step 3); changes nothing |
+   | `PUT /admin/ruleset` | Everything the dry run does, then activates |
+   | `GET /admin/ruleset` | The active version and its YAML |
+   | `GET /admin/ruleset/versions` | History: version, who activated it, when |
+   | `POST /admin/ruleset/rollback/{version}` | Re-activates a stored version (checked again before it goes live) |
+
+   A rejected rule set returns 422 with every problem, in the same `rule id: problem` form the
+   compiler produces today.
+2. **`RuleSetStore.activate(yaml, user, expectedVersion)`**: compile and run embedded tests with the
+   existing `RuleSetCompiler`; require a `rulesetVersion` not used before (reusing one with
+   different content is rejected); save; then swap the `AtomicReference`. Requests already running
+   finish on the old rules, new requests get the new ones. All or nothing: on any failure the old
+   rules stay active and nothing is saved.
+3. **Replay before activation**: run a stored set of known applications (starting with `examples/`,
+   later anonymised real ones) through the old and the new rules and return the differences, for
+   example "3 applications now fail STATE_CODE", so the author sees the effect before going live.
+4. **Storage** (new `store/RuleSetRepository` interface, first implementation on files): each
+   version saved under a `fafsa.rules.storage-dir` setting, written to a temporary file and
+   renamed so a crash never leaves half a file, plus an "active" pointer and the audit entries.
+   On startup the store loads the active version from storage, and falls back to
+   `fafsa.rules.location` when storage is empty.
+5. **Concurrency**: one activation at a time. `PUT` names the version it was based on
+   (`If-Match`); if someone else activated a version in between, it gets 409 instead of silently
+   overwriting their change.
+6. **Traceability**: the active version in an `X-Ruleset-Version` response header and in the
+   per-request log line, so every result can be traced to the rules that produced it; a
+   `fafsa.ruleset.activations{result}` counter and an audit log line for each activation and
+   rollback.
+
+**Phase 2: secure the admin API**
+
+- Spring Security on `/admin/**` only: authenticated users with a rule-admin role (an API key to
+  start, the organisation's SSO later); the validation API is unaffected.
+- Serve admin endpoints on the management port or an internal network, not publicly.
+- Limit the size of an uploaded rule file. CEL already guarantees a rule cannot run code; also cap
+  expression length and loop iterations through CEL options.
+- Optional, if the business requires it: a second person approves a version before it can be
+  activated (drafts and approvals stored separately).
+
+**Phase 3: several instances**
+
+- Move the repository to shared storage (a database table or object store) with one "active"
+  pointer.
+- Each instance polls the pointer (for example every 30 seconds) and swaps when it changes; a
+  message bus can push the change instead when instances must switch within seconds.
+- `/actuator/info` already shows each instance's active version, which makes a stuck instance easy
+  to spot.
+
+**Tests to add**
+
+- A rejected rule set leaves the old rules active and stores nothing.
+- Activation under load: every response matches exactly one version, never a mix.
+- Rollback, and a rejected rollback of a version that no longer passes the checks.
+- The active version survives a restart.
+- `If-Match` conflict returns 409; unauthenticated or non-admin calls are refused.
+
+**Rejected alternative**: watching the rule file and reloading on change. It is the smallest
+change, but the author gets no dry run or feedback beyond logs, there is no audit or rollback, and
+with several instances each needs its own copy of the file.
+
 ## 4. Rule priority and order
 
 There are two fixed stages, then the rules:
@@ -49,7 +146,7 @@ There are two fixed stages, then the rules:
 
 Between rules, **order does not change the outcome**. Each rule only reads the application; no
 rule changes data, depends on another rule's result, or stops the others. File order only decides
-the order of `violations` in the response. Severity does not reorder anything either; it only
+the order of `passed` and `violations` in the response. Severity does not reorder anything either; it only
 decides the overall status (section 6). There is deliberately no priority field: with independent
 rules it would add configuration without changing any result.
 
@@ -181,10 +278,92 @@ tests all stop the file from loading, with a message naming the rule. `RULE_AUTH
 guide. Today a change needs a restart; runtime activation and rollback (section 3) is the planned
 next step.
 
-## 9. Security of the admin API
+## 9. Security
+
+- **Rules cannot run code**: CEL has no I/O and no access to Java, and always terminates, so a rule
+  file cannot do anything except compute true or false.
+- **Strict input**: unknown fields and wrong types are rejected (section 1); batches are capped at
+  `fafsa.validation.max-batch-size`.
+- **No personal data in logs or metrics**: logs hold statuses, rule ids and field names only;
+  parser error messages, which can quote the request body, are not logged. Field names a caller
+  invents are logged and tagged as `unknown`, so they cannot inject text into logs or create
+  unlimited metrics. A caller's `X-Request-Id` is reused only if it is a plain token.
+- **Error responses do not reveal internals**: no stack traces, request paths, or parser details.
+- **Planned ahead**: authentication (the validation API is open today) and the admin API for
+  changing rules, secured with an admin role, an audit log and a size limit on uploaded rule files
+  (section 3, phase 2).
+
 ## 10. Production considerations
+
+In place: health, info (active rule set version) and metrics endpoints; a request id on every log
+line; external configuration (rule file location, batch size, parallelism); the service is
+stateless, so it scales by adding instances; a bad rule file fails at startup rather than at
+request time.
+
+Would add before production: authentication and rate limiting; the admin API with audit
+(section 3); the rule set version in each response (for example an `X-Ruleset-Version` header) so
+every result can be traced to the rules that produced it; dashboards and alerts on
+`fafsa.rule.results{outcome="ERRORED"}` and on error rates; a container image and deployment
+configuration.
+
 ## 11. Assumptions
+
+- **Age** is computed in whole years from the date of birth to the server's current date. There is
+  no upper age limit (the assignment's background mentions 120; only "at least 14" is required).
+- **SSN** is exactly 9 digits with no dashes or spaces. It is never echoed in messages.
+- **Dependency and marital status** take exactly `dependent`/`independent` and `single`/`married`
+  (case-sensitive). When missing they default to `independent` and `single`, reported as warnings,
+  rather than failing the application.
+- **Household counts** default to 1 when missing (the student) and must be above 0.
+- **Income**: at least one of student or parent income must be given. Amounts keep 2 decimal
+  places; further digits are dropped, not rounded. Negative amounts pass the input checks so that
+  the `NON_NEGATIVE_INCOME` rule reports them with its message. Zero parent income counts as given.
+- **State** must be an upper-case postal abbreviation: the 50 states, DC, and the territories
+  AS, GU, MP, PR, VI.
+- **Spouse information** means first name, last name and SSN, none blank. The spouse SSN format is
+  not checked; no rule asked for it.
+- **Results**: an application that breaks rules is still HTTP 200 (it was processed); only input
+  that cannot be checked is a 400.
+
 ## 12. Testing strategy
+
+Tests are layered so a failure points at its cause (94 tests, `./mvnw clean verify`):
+
+| Layer | What it proves | Where |
+|---|---|---|
+| Embedded rule tests | Each of the 7 rules passes, fails and does not apply as intended (29 examples, run on every load) | `fafsa-2026-27.yaml` |
+| Compiler | Broken rule files are rejected with every problem listed; the real file compiles | `RuleSetCompilerTest` (10) |
+| Engine | Status from severities, `ERRORED` isolation, parallel = sequential results and order, metrics | `RuleEngineTest` (7) |
+| Input checks | Required fields, defaults, all problems reported together, income truncation | `ApplicationValidatorTest` (10) |
+| API end to end | The real rule file through HTTP: both sample applications, 20+ malformed-input cases, batch, response shape, logs without personal data, metrics | `FafsaEditResourceTest` (66) |
+
+The end-to-end tests use a fixed clock so the age rule gives the same answer on any day.
+
 ## 13. What I'd do next
+
+1. Runtime rule activation through the admin API (section 3).
+2. The rule set version in every response, for traceability.
+3. A coverage report (JaCoCo) in the build, and tests that replay a larger set of anonymised real
+   applications against each new rule set.
+4. Rule-level options the domain will likely need: effective dates per rule (rules that change
+   during the year), and rules that check the spouse SSN format or an upper age limit.
+
 ## Use of AI
+
+I built this with Claude Code as a pair programmer. I made the design decisions and reviewed and
+steered the output; the AI wrote most of the code and tests, ran the build, and measured
+performance. Places where I changed its direction:
+
+- Input binds to typed records with strict JSON, instead of the generic JSON map
+- Fixed value sets (`dependencyStatus`, `maritalStatus`) are enums.
+- Every input problem is reported in one response, including missing fields and bad values
+  together, while still deserializing to the typed record.
+- The exception handler was simplified; error responses was simplified with extra and useless information removed.
+- I rejected a custom validation annotation in favour of a plain check in the validator for simplicity and maintainability.
+- Responses carry only what applies (`passed`, `violations`, `warnings` only when non-empty).
+- Logs and metrics were added before any further features; parallel rule evaluation was added and
+  then measured, which set its default threshold.
+
 ## Time spent
+
+About 2 hours 15 minutes.

@@ -20,11 +20,9 @@ management:
 
 fafsa:
   rules:
-    # Rule set loaded at startup (Step 8). Point at an external file with
-    # FAFSA_RULES_LOCATION=file:/path/to/rules.yaml to change rules without rebuilding.
+    # Rule set loaded at startup. Point at an external file with
+    # FAFSA_RULES_LOCATION=file:/path/to/rules.yaml to change rules without rebuilding (restart needed).
     location: classpath:rules/fafsa-2026-27.yaml
-    # Where rule sets activated through the admin API are saved, so restarts keep them.
-    storage-dir: ./data/rulesets
   validation:
     max-batch-size: 1000
   engine:
