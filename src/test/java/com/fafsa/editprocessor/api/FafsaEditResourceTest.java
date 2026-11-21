@@ -61,7 +61,12 @@ class FafsaEditResourceTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.status").value("VALID"))
                 .andExpect(jsonPath("$.message").value("Valid application"))
-                .andExpect(content().json("{\"status\": \"VALID\", \"message\": \"Valid application\"}", true));
+                // Single student: MARRIED_SPOUSE_INFO does not apply, so it is in neither list
+                .andExpect(content().json("""
+                        {"status": "VALID", "message": "Valid application",
+                         "passed": ["STUDENT_AGE", "SSN_FORMAT", "DEPENDENT_PARENT_INCOME", "NON_NEGATIVE_INCOME",
+                                    "HOUSEHOLD_COLLEGE_COUNT", "STATE_CODE"]}
+                        """, true));
     }
 
     @Test
@@ -74,6 +79,7 @@ class FafsaEditResourceTest {
                 .andExpect(jsonPath("$.message").value("Application failed 7 rules"))
                 .andExpect(jsonPath("$.warnings").doesNotExist())
                 .andExpect(jsonPath("$.errors").doesNotExist())
+                .andExpect(jsonPath("$.passed").doesNotExist())
                 .andExpect(jsonPath("$.violations[*].ruleId").value(org.hamcrest.Matchers.contains(
                         "STUDENT_AGE", "SSN_FORMAT", "DEPENDENT_PARENT_INCOME", "NON_NEGATIVE_INCOME",
                         "HOUSEHOLD_COLLEGE_COUNT", "STATE_CODE", "MARRIED_SPOUSE_INFO")))
@@ -124,6 +130,8 @@ class FafsaEditResourceTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("INVALID"))
                 .andExpect(jsonPath("$.violations[0].ruleId").value("HOUSEHOLD_COLLEGE_COUNT"))
+                .andExpect(jsonPath("$.passed").value(contains("STUDENT_AGE", "SSN_FORMAT",
+                        "NON_NEGATIVE_INCOME", "STATE_CODE")))
                 .andExpect(jsonPath("$.violations[0].message")
                         .value("Number in college (3) cannot exceed number in household (1)"))
                 .andExpect(jsonPath("$.warnings[*].field").value(org.hamcrest.Matchers.contains(
@@ -350,6 +358,8 @@ class FafsaEditResourceTest {
                 .andExpect(jsonPath("$.results[0].errors").doesNotExist())
                 .andExpect(jsonPath("$.results[0].warnings").doesNotExist())
                 .andExpect(jsonPath("$.results[0].violations").doesNotExist())
+                .andExpect(jsonPath("$.results[0].passed.length()").value(6))
+                .andExpect(jsonPath("$.results[2].passed").doesNotExist())
                 .andExpect(jsonPath("$.results[1].violations.length()").value(7))
                 .andExpect(jsonPath("$.results[2].errors[*].field").value(contains("dependencyStatus", "studentInfo")))
                 .andExpect(jsonPath("$.results[2].warnings[*].field").value(contains(

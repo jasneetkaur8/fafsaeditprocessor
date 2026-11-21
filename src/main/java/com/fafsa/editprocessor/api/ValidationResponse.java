@@ -18,6 +18,8 @@ import java.util.List;
  * @param errors     input problems, only for {@code INVALID_INPUT}
  * @param warnings   defaults filled in (or, for {@code INVALID_INPUT}, that would be filled in) for
  *                   information the application left out
+ * @param passed     ids of the rules the application passed, in rule order (rules that did not
+ *                   apply, such as spouse info for a single student, are in neither list)
  * @param violations rules that failed or could not be evaluated, in rule order
  */
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
@@ -26,6 +28,7 @@ public record ValidationResponse(
         String message,
         List<InputError> errors,
         List<AppliedDefault> warnings,
+        List<String> passed,
         List<Violation> violations) {
 
     static final String INVALID_INPUT = "INVALID_INPUT";
@@ -49,7 +52,8 @@ public record ValidationResponse(
     /** The input checks failed, so the rules did not run. */
     public static ValidationResponse invalidInput(String message, List<InputError> errors,
             List<AppliedDefault> warnings) {
-        return new ValidationResponse(INVALID_INPUT, message, List.copyOf(errors), List.copyOf(warnings), List.of());
+        return new ValidationResponse(INVALID_INPUT, message, List.copyOf(errors), List.copyOf(warnings),
+                List.of(), List.of());
     }
 
     /**
@@ -58,12 +62,16 @@ public record ValidationResponse(
      */
     public static ValidationResponse from(ValidationResult result, List<AppliedDefault> defaultsApplied) {
         List<Violation> violations = result.violations().stream().map(Violation::of).toList();
+        List<String> passed = result.results().stream()
+                .filter(r -> r.outcome() == RuleOutcome.PASSED)
+                .map(RuleResult::ruleId)
+                .toList();
         ApplicationStatus status = result.status();
         if (status == ApplicationStatus.VALID && !defaultsApplied.isEmpty()) {
             status = ApplicationStatus.VALID_WITH_WARNINGS;
         }
         return new ValidationResponse(status.name(), messageFor(status, violations.size(), defaultsApplied.size()),
-                List.of(), List.copyOf(defaultsApplied), violations);
+                List.of(), List.copyOf(defaultsApplied), passed, violations);
     }
 
     private static String messageFor(ApplicationStatus status, int violations, int defaults) {
