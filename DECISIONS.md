@@ -145,8 +145,24 @@ Why it scales to many applications:
   the whole batch shares one rule-set snapshot, and items run one after another (1000 items take
   about 10 ms of engine time).
 
-Not built: running rules in parallel within one application, which is not worth it at 10 µs. If
-profiling showed the conversion to CEL data dominating, it could be replaced by a hand-written
+- **Parallel rules within one application**, for large rule sets. Once a rule set has at least
+  `fafsa.engine.parallel.min-rules` rules (default 50), one application's rules run concurrently on
+  a dedicated pool (`fafsa.engine.parallel.threads`, default one per core). Results keep rule order,
+  a failing rule is still isolated, and the request id follows onto the pool threads. Rules only
+  read the application, so this needs no locking. Measured, 8 cores (sequential → parallel):
+
+  | Rules | Sequential | Parallel | Speedup |
+  |---|---|---|---|
+  | 7 (current file) | 11.8 µs | 19.6 µs | 0.6x: slower |
+  | 50 | 114 µs | 77 µs | 1.5x |
+  | 200 | 425 µs | 210 µs | 2.0x |
+  | 1000 | 2.4 ms | 1.1 ms | 2.2x |
+
+  Below about 15–30 rules, handing rules to other threads costs more than it saves, so the
+  current 7 rules run one after another. Parallelism here **lowers one application's latency**; it
+  does not raise total throughput when many requests already keep every core busy.
+
+If profiling showed the conversion to CEL data dominating, it could be replaced by a hand-written
 mapping.
 
 ## Extensibility: adding rules

@@ -27,6 +27,14 @@ fafsa:
     storage-dir: ./data/rulesets
   validation:
     max-batch-size: 1000
+  engine:
+    parallel:
+      # Run one application's rules concurrently once a rule set has at least this many rules
+      # (0 = never). Measured break-even is about 15-30 rules; below that, handing rules to other
+      # threads costs more than it saves (7 rules: 12 us one after another, 20 us in parallel).
+      min-rules: 50
+      # Threads for parallel rule evaluation; 0 = one per CPU core
+      threads: 0
 
 logging:
   pattern:
