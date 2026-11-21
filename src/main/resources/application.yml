@@ -1,6 +1,10 @@
 spring:
   application:
     name: fafsaeditprocessor
+  mvc:
+    # Return errors as RFC 7807 problem details (JSON with type, title, status, detail)
+    problemdetails:
+      enabled: true
 
 server:
   port: 8080
