@@ -43,6 +43,8 @@ public class StrictJsonConfig {
                         DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
                         DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES,
                         DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS,
+                        // Requests are read into a JSON tree first: keep money exact, not a double
+                        DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS,
                         JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
                 .featuresToDisable(
                         DeserializationFeature.ACCEPT_FLOAT_AS_INT,

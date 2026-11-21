@@ -7,7 +7,6 @@ import com.fafsa.editprocessor.input.ApplicationValidator;
 import com.fafsa.editprocessor.input.FafsaApplication;
 import com.fafsa.editprocessor.input.ValidatedApplication;
 import com.fafsa.editprocessor.store.RuleSetStore;
-import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,8 +16,9 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Ingests a FAFSA application as JSON and returns its validation result.
  *
- * <p>Missing required information fails Bean Validation ({@code @Valid}) with a 400. Then
- * {@link ApplicationValidator} fills in defaults, which are listed in the response. The completed application is then
+ * <p>The body arrives as a checked {@link FafsaApplication}: {@code FafsaApplicationMessageConverter}
+ * deserializes it and reports every bad value and missing required field together in one 400.
+ * {@link ApplicationValidator} then fills in defaults, which are listed in the response. The completed application is then
  * run through the active rule set; failed rules are reported in the response
  * (still a 200, since the application was processed).
  */
@@ -41,8 +41,8 @@ public class FafsaEditResource {
             path = "/validate",
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
-    public ValidationResponse validate(@Valid @RequestBody FafsaApplication application) {
-        ValidatedApplication validated = applicationValidator.validate(application);
+    public ValidationResponse validate(@RequestBody FafsaApplication application) {
+        ValidatedApplication validated = applicationValidator.applyDefaults(application);
         CompiledRuleSet rules = ruleSetStore.active(); // one snapshot for the whole request
         ValidationResult result = ruleEngine.evaluate(rules, validated.application());
         return ValidationResponse.from(result, validated.defaultsApplied());

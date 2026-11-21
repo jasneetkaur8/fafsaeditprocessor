@@ -1,5 +1,6 @@
 package com.fafsa.editprocessor.api;
 
+import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -151,53 +152,48 @@ class FafsaEditResourceTest {
                 .andExpect(jsonPath("$.defaultsApplied[3].value").value(1));
     }
 
-    /** Missing and null fields bind fine; the validator then reports every missing required field. */
+    /** The example from the bug report: a bad enum value no longer hides the missing student info. */
     @Test
-    void missingStudentInfoFieldsFailSpringValidation() throws Exception {
+    void badValuesAndMissingFieldsAreReportedTogether() throws Exception {
+        String body = """
+                {"dependencyStatus": "abc", "maritalStatus": "single",
+                 "household": {"numberInHousehold": "4", "numberInCollege": 1},
+                 "income": {"studentIncome": 5000, "parentIncome": 65000},
+                 "stateOfResidence": "CA", "nickname": "JJ"}
+                """;
+
+        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid application"))
+                .andExpect(jsonPath("$.detail").value("4 problems with the application"))
+                .andExpect(jsonPath("$.errors[*].field").value(contains(
+                        "dependencyStatus", "household.numberInHousehold", "nickname", "studentInfo")))
+                .andExpect(jsonPath("$.errors[*].problem").value(contains(
+                        "must be one of: dependent, independent", "must be a valid value",
+                        "is not a known field", "must not be null")))
+                .andExpect(jsonPath("$.instance").doesNotExist())
+                .andExpect(jsonPath("$.type").doesNotExist());
+    }
+
+    @Test
+    void everyMissingStudentInfoFieldIsReported() throws Exception {
         mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"studentInfo\": {\"firstName\": \"  \", \"ssn\": null}}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Incomplete application"))
-                .andExpect(jsonPath("$.detail").value("Missing required fields: income, stateOfResidence, "
-                        + "studentInfo.dateOfBirth, studentInfo.firstName, studentInfo.lastName, studentInfo.ssn"))
-                .andExpect(jsonPath("$.instance").doesNotExist())
-                .andExpect(jsonPath("$.type").doesNotExist())
-                .andExpect(jsonPath("$.missingFields.length()").value(6));
-    }
-
-    @Test
-    void missingStudentInfoFailsSpringValidation() throws Exception {
-        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"income\": {\"studentIncome\": 0}, \"stateOfResidence\": \"CA\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Incomplete application"))
-                .andExpect(jsonPath("$.missingFields").value(org.hamcrest.Matchers.contains("studentInfo")));
-    }
-
-    @Test
-    void everyMissingRequiredFieldIsReportedAtOnce() throws Exception {
-        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Incomplete application"))
-                .andExpect(jsonPath("$.missingFields")
-                        .value(org.hamcrest.Matchers.contains("income", "stateOfResidence", "studentInfo")));
+                .andExpect(jsonPath("$.errors[*].field").value(contains("income", "stateOfResidence",
+                        "studentInfo.dateOfBirth", "studentInfo.firstName", "studentInfo.lastName", "studentInfo.ssn")));
     }
 
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', textBlock = """
-            no income amounts  | "income": {}                                 | income
-            both amounts null  | "income": {"studentIncome": null, "parentIncome": null} | income
+            no income amounts  | {}
+            both amounts null  | {"studentIncome": null, "parentIncome": null}
             """)
-    void incomeNeedsAtLeastOneAmount(String scenario, String incomeJson, String missingField) throws Exception {
-        String body = """
-                {"studentInfo": {"firstName": "Jane", "lastName": "Smith",
-                                 "ssn": "123456789", "dateOfBirth": "2003-05-15"},
-                 %s, "stateOfResidence": "CA"}
-                """.formatted(incomeJson);
-
-        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+    void incomeNeedsAtLeastOneAmount(String scenario, String incomeJson) throws Exception {
+        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(withIncome(incomeJson)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.missingFields").value(org.hamcrest.Matchers.contains(missingField)));
+                .andExpect(jsonPath("$.errors[*].field").value(contains("income")))
+                .andExpect(jsonPath("$.errors[0].problem").value("must have studentIncome or parentIncome"));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -206,77 +202,75 @@ class FafsaEditResourceTest {
             parent income only  | {"parentIncome": 65000}
             """)
     void oneIncomeAmountIsEnough(String scenario, String incomeJson) throws Exception {
-        String body = """
-                {"studentInfo": {"firstName": "Jane", "lastName": "Smith",
-                                 "ssn": "123456789", "dateOfBirth": "2003-05-15"},
-                 "income": %s, "stateOfResidence": "CA"}
-                """.formatted(incomeJson);
-
-        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(withIncome(incomeJson)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("VALID"));
     }
 
     @Test
-    void blankStateIsMissing() throws Exception {
-        String body = """
-                {"studentInfo": {"firstName": "Jane", "lastName": "Smith",
-                                 "ssn": "123456789", "dateOfBirth": "2003-05-15"},
-                 "income": {"studentIncome": 0}, "stateOfResidence": "  "}
-                """;
+    void blankStateIsReported() throws Exception {
+        String body = withIncome("{\"studentIncome\": 0}").replace("\"CA\"", "\"  \"");
 
         mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.missingFields").value(org.hamcrest.Matchers.contains("stateOfResidence")));
+                .andExpect(jsonPath("$.errors[*].field").value(contains("stateOfResidence")))
+                .andExpect(jsonPath("$.errors[0].problem").value("must not be blank"));
     }
 
-    /** Every input Jackson would otherwise quietly accept or repair is rejected, naming the field. */
+    /** Every input Jackson would otherwise quietly accept or repair is reported for its field. */
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', textBlock = """
-            unknown top-level field   | {"nickname": "JJ"}                                  | Unknown field 'nickname'
-            unknown nested field      | {"studentInfo": {"middleName": "Q"}}                | Unknown field 'studentInfo.middleName'
-            text for integer          | {"household": {"numberInHousehold": "4"}}           | Invalid value for field 'household.numberInHousehold'
-            decimal for integer       | {"household": {"numberInCollege": 1.5}}             | Invalid value for field 'household.numberInCollege'
-            text for money            | {"income": {"parentIncome": "65000"}}               | Invalid value for field 'income.parentIncome'
-            number for text           | {"studentInfo": {"ssn": 123456789}}                 | Invalid value for field 'studentInfo.ssn'
-            boolean for text          | {"stateOfResidence": true}                          | Invalid value for field 'stateOfResidence'
-            empty string for integer  | {"household": {"numberInHousehold": ""}}            | Invalid value for field 'household.numberInHousehold'
-            empty string for date     | {"studentInfo": {"dateOfBirth": ""}}                | Invalid value for field 'studentInfo.dateOfBirth'
-            number for date           | {"studentInfo": {"dateOfBirth": 12000}}             | Invalid value for field 'studentInfo.dateOfBirth'
-            array for date            | {"studentInfo": {"dateOfBirth": [2003, 5, 15]}}     | Invalid value for field 'studentInfo.dateOfBirth'
-            wrong date format         | {"studentInfo": {"dateOfBirth": "15/05/2003"}}      | Invalid value for field 'studentInfo.dateOfBirth'
-            impossible date           | {"studentInfo": {"dateOfBirth": "2003-02-30"}}      | Invalid value for field 'studentInfo.dateOfBirth'
-            object for text           | {"maritalStatus": {"value": "single"}}              | Invalid value for field 'maritalStatus'
-            unknown dependency status | {"dependencyStatus": "unknown"}                     | Invalid value for field 'dependencyStatus'
-            dependency status casing  | {"dependencyStatus": "Dependent"}                   | Invalid value for field 'dependencyStatus'
-            enum constant name        | {"dependencyStatus": "DEPENDENT"}                   | Invalid value for field 'dependencyStatus'
-            empty dependency status   | {"dependencyStatus": ""}                            | Invalid value for field 'dependencyStatus'
-            number for enum           | {"dependencyStatus": 0}                             | Invalid value for field 'dependencyStatus'
-            array instead of object   | [1, 2, 3]                                           | Request body is not a valid JSON application
-            trailing content          | {} {}                                               | Request body is not a valid JSON application
+            unknown top-level field   | {"nickname": "JJ"}                              | nickname                    | is not a known field
+            unknown nested field      | {"studentInfo": {"middleName": "Q"}}            | studentInfo.middleName      | is not a known field
+            text for integer          | {"household": {"numberInHousehold": "4"}}       | household.numberInHousehold | must be a valid value
+            decimal for integer       | {"household": {"numberInCollege": 1.5}}         | household.numberInCollege   | must be a valid value
+            text for money            | {"income": {"parentIncome": "65000"}}           | income.parentIncome         | must be a valid value
+            number for text           | {"studentInfo": {"ssn": 123456789}}             | studentInfo.ssn             | must be a valid value
+            boolean for text          | {"stateOfResidence": true}                      | stateOfResidence            | must be a valid value
+            empty string for integer  | {"household": {"numberInHousehold": ""}}        | household.numberInHousehold | must be a valid value
+            empty string for date     | {"studentInfo": {"dateOfBirth": ""}}            | studentInfo.dateOfBirth     | must be a valid value
+            number for date           | {"studentInfo": {"dateOfBirth": 12000}}         | studentInfo.dateOfBirth     | must be a valid value
+            array for date            | {"studentInfo": {"dateOfBirth": [2003, 5, 15]}} | studentInfo.dateOfBirth     | must be a valid value
+            wrong date format         | {"studentInfo": {"dateOfBirth": "15/05/2003"}}  | studentInfo.dateOfBirth     | must be a valid value
+            impossible date           | {"studentInfo": {"dateOfBirth": "2003-02-30"}}  | studentInfo.dateOfBirth     | must be a valid value
+            object for text           | {"maritalStatus": {"value": "single"}}          | maritalStatus               | must be a valid value
+            text for object           | {"household": "big"}                            | household                   | must be an object
+            unknown dependency status | {"dependencyStatus": "unknown"}                 | dependencyStatus            | must be one of: dependent, independent
+            dependency status casing  | {"dependencyStatus": "Dependent"}               | dependencyStatus            | must be one of: dependent, independent
+            enum constant name        | {"dependencyStatus": "DEPENDENT"}               | dependencyStatus            | must be one of: dependent, independent
+            empty dependency status   | {"dependencyStatus": ""}                        | dependencyStatus            | must be one of: dependent, independent
+            number for enum           | {"dependencyStatus": 0}                         | dependencyStatus            | must be one of: dependent, independent
             """)
-    void noisyInputIsRejected(String scenario, String body, String expectedDetail) throws Exception {
+    void noisyInputIsReportedForItsField(String scenario, String body, String field, String problem) throws Exception {
+        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid application"))
+                .andExpect(jsonPath("$.errors[?(@.field == '" + field + "')].problem").value(contains(problem)));
+    }
+
+    /** Problems with the body as a whole cannot be tied to a field, so they are reported alone. */
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', textBlock = """
+            array instead of object | [1, 2, 3]
+            trailing content        | {} {}
+            duplicate key           | {"stateOfResidence": "CA", "stateOfResidence": "NY"}
+            broken JSON             | { not json
+            """)
+    void malformedBodyIsRejected(String scenario, String body) throws Exception {
         mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Malformed application"))
-                .andExpect(jsonPath("$.detail").value(expectedDetail))
+                .andExpect(jsonPath("$.detail").value("Request body must be a single valid JSON object"))
                 .andExpect(jsonPath("$.instance").doesNotExist())
                 .andExpect(jsonPath("$.type").doesNotExist());
     }
 
-    @Test
-    void duplicateKeyIsRejected() throws Exception {
-        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"stateOfResidence\": \"CA\", \"stateOfResidence\": \"NY\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value("Request body is not a valid JSON application"));
-    }
-
-    @Test
-    void malformedJsonIsRejected() throws Exception {
-        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content("{ not json"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value("Request body is not a valid JSON application"));
+    private static String withIncome(String incomeJson) {
+        return """
+                {"studentInfo": {"firstName": "Jane", "lastName": "Smith",
+                                 "ssn": "123456789", "dateOfBirth": "2003-05-15"},
+                 "income": %s, "stateOfResidence": "CA"}
+                """.formatted(incomeJson);
     }
 
     @Test
