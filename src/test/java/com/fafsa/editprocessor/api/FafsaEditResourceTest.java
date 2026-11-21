@@ -1,23 +1,31 @@
 package com.fafsa.editprocessor.api;
 
 import static org.hamcrest.Matchers.contains;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
@@ -26,6 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 /** Runs against the real rule file, so these tests also prove it loads and its rules behave. */
 @SpringBootTest
 @AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 class FafsaEditResourceTest {
 
     private static final String URL = "/api/v1/applications/validate";
@@ -368,6 +377,94 @@ class FafsaEditResourceTest {
         mvc.perform(post(BATCH_URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Batch must contain at most 1000 applications"));
+    }
+
+    @Autowired
+    private MeterRegistry registry;
+
+    private double count(String name, String... tags) {
+        Counter counter = registry.find(name).tags(tags).counter();
+        return counter == null ? 0 : counter.count();
+    }
+
+    @Test
+    void validationsAndRuleResultsAreCounted() throws Exception {
+        double invalid = count("fafsa.validations", "mode", "single", "status", "INVALID");
+        double stateFailed = count("fafsa.rule.results", "rule", "STATE_CODE", "outcome", "FAILED");
+
+        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(Files.readString(Path.of("examples/invalid-application.json"))))
+                .andExpect(status().isOk());
+
+        assertThat(count("fafsa.validations", "mode", "single", "status", "INVALID")).isEqualTo(invalid + 1);
+        assertThat(count("fafsa.rule.results", "rule", "STATE_CODE", "outcome", "FAILED")).isEqualTo(stateFailed + 1);
+    }
+
+    @Test
+    void inputErrorsAndDefaultsAreCountedByField() throws Exception {
+        double missingStudent = count("fafsa.input.errors", "field", "studentInfo");
+        double unknown = count("fafsa.input.errors", "field", "unknown");
+        double defaulted = count("fafsa.defaults.applied", "field", "dependencyStatus");
+
+        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\": \"JJ\", \"income\": {\"studentIncome\": 1}, \"stateOfResidence\": \"CA\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(count("fafsa.input.errors", "field", "studentInfo")).isEqualTo(missingStudent + 1);
+        // Caller-chosen field names never become metric tags
+        assertThat(count("fafsa.input.errors", "field", "unknown")).isEqualTo(unknown + 1);
+        assertThat(registry.find("fafsa.input.errors").tags("field", "nickname").counter()).isNull();
+        assertThat(count("fafsa.defaults.applied", "field", "dependencyStatus")).isEqualTo(defaulted + 1);
+    }
+
+    @Test
+    void batchesAreCounted() throws Exception {
+        double rejected = count("fafsa.batch.rejected");
+        double batchItems = count("fafsa.validations", "mode", "batch", "status", "VALID");
+
+        mvc.perform(post(BATCH_URL).contentType(MediaType.APPLICATION_JSON).content("[]"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post(BATCH_URL).contentType(MediaType.APPLICATION_JSON)
+                        .content("[" + Files.readString(Path.of("examples/valid-application.json")) + "]"))
+                .andExpect(status().isOk());
+
+        assertThat(count("fafsa.batch.rejected")).isEqualTo(rejected + 1);
+        assertThat(count("fafsa.validations", "mode", "batch", "status", "VALID")).isEqualTo(batchItems + 1);
+        assertThat(registry.find("fafsa.batch.size").summary()).isNotNull();
+    }
+
+    @Test
+    void logLineHasTheOutcomeAndRequestIdButNoApplicationData(CapturedOutput output) throws Exception {
+        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).header("X-Request-Id", "test-req-42")
+                        .content(Files.readString(Path.of("examples/invalid-application.json"))))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Request-Id", "test-req-42"));
+
+        String logLine = output.getOut().lines()
+                .filter(line -> line.contains("Validated application")).reduce((a, b) -> b).orElseThrow();
+        assertThat(logLine).contains("[test-req-42]", "status=INVALID", "ruleset=2026-27.1", "STATE_CODE");
+        // No values from the application: name, SSN, date of birth, state
+        assertThat(logLine).doesNotContain("John", "Doe", "invalid", "2015-01-01", "XX");
+    }
+
+    @ParameterizedTest(name = "request id {0}")
+    @CsvSource({"''", "'bad id with spaces'", "'line1\nline2'"})
+    void missingOrUnsafeRequestIdIsReplaced(String requestId) throws Exception {
+        var request = post(URL).contentType(MediaType.APPLICATION_JSON).content("{}");
+        if (!requestId.isEmpty()) {
+            request.header("X-Request-Id", requestId);
+        }
+        mvc.perform(request)
+                .andExpect(header().string("X-Request-Id", org.hamcrest.Matchers.matchesPattern("[0-9a-f-]{36}")));
+    }
+
+    @Test
+    void activeRuleSetIsShownInActuatorInfo() throws Exception {
+        mvc.perform(get("/actuator/info"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ruleset.version").value("2026-27.1"))
+                .andExpect(jsonPath("$.ruleset.rules").value(7))
+                .andExpect(jsonPath("$.ruleset.loadedAt").exists());
     }
 
     private static String withIncome(String incomeJson) {

@@ -26,9 +26,16 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
+    private final ValidationTelemetry telemetry;
+
+    public ApiExceptionHandler(ValidationTelemetry telemetry) {
+        this.telemetry = telemetry;
+    }
+
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(
             HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        telemetry.malformedBody(ex);
         ValidationResponse body = ValidationResponse.invalidInput(
                 "Request body must be a single valid JSON object", List.of(), List.of());
         return handleExceptionInternal(ex, body, headers, HttpStatus.BAD_REQUEST, request);
@@ -36,7 +43,10 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(InvalidApplicationException.class)
     ResponseEntity<ValidationResponse> handleInvalidApplication(InvalidApplicationException ex) {
-        return ResponseEntity.badRequest().body(ValidationResponse.invalidInput(ex.getMessage(), ex.getErrors(), ex.getWarnings()));
+        // Only thrown while reading a single application; batch items are handled in the controller
+        ValidationResponse body = ValidationResponse.invalidInput(ex.getMessage(), ex.getErrors(), ex.getWarnings());
+        telemetry.single(body, null);
+        return ResponseEntity.badRequest().body(body);
     }
 
     /** Spring's default detail repeats the path, so give a generic one instead. */

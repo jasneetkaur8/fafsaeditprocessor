@@ -39,15 +39,17 @@ public class FafsaEditResource {
     private final RuleSetStore ruleSetStore;
     private final RuleEngine ruleEngine;
     private final ObjectMapper mapper;
+    private final ValidationTelemetry telemetry;
     private final int maxBatchSize;
 
     public FafsaEditResource(ApplicationValidator applicationValidator, RuleSetStore ruleSetStore,
-            RuleEngine ruleEngine, ObjectMapper mapper,
+            RuleEngine ruleEngine, ObjectMapper mapper, ValidationTelemetry telemetry,
             @Value("${fafsa.validation.max-batch-size}") int maxBatchSize) {
         this.applicationValidator = applicationValidator;
         this.ruleSetStore = ruleSetStore;
         this.ruleEngine = ruleEngine;
         this.mapper = mapper;
+        this.telemetry = telemetry;
         this.maxBatchSize = maxBatchSize;
     }
 
@@ -56,7 +58,10 @@ public class FafsaEditResource {
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     public ValidationResponse validate(@RequestBody FafsaApplication application) {
-        return evaluate(application, ruleSetStore.active()); // one rule-set snapshot per request
+        CompiledRuleSet rules = ruleSetStore.active(); // one rule-set snapshot per request
+        ValidationResponse response = evaluate(application, rules);
+        telemetry.single(response, rules.version());
+        return response;
     }
 
     /**
@@ -86,11 +91,15 @@ public class FafsaEditResource {
             return badBatch("Batch must contain at most " + maxBatchSize + " applications");
         }
 
+        long start = System.nanoTime();
         CompiledRuleSet rules = ruleSetStore.active(); // the same rules for every item in the batch
         List<BatchResponse.Item> results = new ArrayList<>();
         for (int i = 0; i < applications.size(); i++) {
-            results.add(new BatchResponse.Item(i, validateItem(applications.get(i), rules)));
+            ValidationResponse result = validateItem(applications.get(i), rules);
+            telemetry.record(ValidationTelemetry.BATCH, result);
+            results.add(new BatchResponse.Item(i, result));
         }
+        telemetry.batch(results, rules.version(), (System.nanoTime() - start) / 1_000_000);
         return ResponseEntity.ok(new BatchResponse(results));
     }
 
@@ -111,7 +120,8 @@ public class FafsaEditResource {
         return ValidationResponse.from(result, validated.defaultsApplied());
     }
 
-    private static ResponseEntity<ValidationResponse> badBatch(String message) {
+    private ResponseEntity<ValidationResponse> badBatch(String message) {
+        telemetry.batchRejected(message);
         return ResponseEntity.badRequest().body(ValidationResponse.invalidInput(message, List.of(), List.of()));
     }
 }

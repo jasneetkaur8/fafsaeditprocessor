@@ -11,6 +11,7 @@ import com.fafsa.editprocessor.input.FafsaApplication.Household;
 import com.fafsa.editprocessor.input.FafsaApplication.Income;
 import com.fafsa.editprocessor.input.FafsaApplication.StudentInfo;
 import com.fafsa.editprocessor.ruleset.RuleOutcome;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -23,7 +24,8 @@ class RuleEngineTest {
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-11-20T12:00:00Z"), ZoneOffset.UTC);
 
     private final RuleSetCompiler compiler = new RuleSetCompiler(CLOCK);
-    private final RuleEngine engine = new RuleEngine(CLOCK);
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    private final RuleEngine engine = new RuleEngine(CLOCK, registry);
 
     private static final FafsaApplication APPLICATION = new FafsaApplication(
             new StudentInfo("Jane", "Smith", "123456789", LocalDate.of(2003, 5, 15)),
@@ -85,6 +87,29 @@ class RuleEngineTest {
                 .containsExactly(RuleOutcome.ERRORED, RuleOutcome.PASSED);
         assertThat(result.results().get(0).message())
                 .isEqualTo("This rule could not be evaluated for the application");
+    }
+
+    @Test
+    void ruleOutcomesAndEvaluationTimeAreRecorded() {
+        CompiledRuleSet rules = ruleSet("""
+                  - id: CA_ONLY
+                    severity: ERROR
+                    expect: stateOfResidence == "CA"
+                    message: m
+                    tests: [{ input: { stateOfResidence: CA }, expect: PASSED }]
+                  - id: NOTE
+                    severity: INFO
+                    expect: "false"
+                    message: note
+                    tests: [{ input: {}, expect: FAILED }]
+                """);
+
+        engine.evaluate(rules, APPLICATION);
+        engine.evaluate(rules, APPLICATION);
+
+        assertThat(registry.counter("fafsa.rule.results", "rule", "CA_ONLY", "outcome", "PASSED").count()).isEqualTo(2);
+        assertThat(registry.counter("fafsa.rule.results", "rule", "NOTE", "outcome", "FAILED").count()).isEqualTo(2);
+        assertThat(registry.timer("fafsa.rules.evaluation").count()).isEqualTo(2);
     }
 
     private CompiledRuleSet ruleSet(String rules) {

@@ -29,5 +29,8 @@ fafsa:
     max-batch-size: 1000
 
 logging:
+  pattern:
+    # Adds [requestId] to every log line (set by RequestIdFilter; empty outside a request)
+    level: "%5p [%X{requestId:-}]"
   level:
     com.fafsa.editprocessor: INFO

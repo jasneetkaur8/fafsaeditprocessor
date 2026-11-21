@@ -4,11 +4,17 @@ import com.fafsa.editprocessor.compiler.CompiledRuleSet;
 import com.fafsa.editprocessor.compiler.RuleSetCompiler;
 import com.fafsa.editprocessor.compiler.RuleSetValidationException;
 import com.fafsa.editprocessor.config.RulesProperties;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.actuate.info.Info;
+import org.springframework.boot.actuate.info.InfoContributor;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Component;
@@ -22,13 +28,15 @@ import org.springframework.stereotype.Component;
  * activation (Step 8) to swap in a new set without mixing old and new rules mid-request.
  */
 @Component
-public class RuleSetStore {
+public class RuleSetStore implements InfoContributor {
 
     private static final Logger log = LoggerFactory.getLogger(RuleSetStore.class);
 
     private final AtomicReference<CompiledRuleSet> active = new AtomicReference<>();
+    private volatile Instant loadedAt;
 
-    public RuleSetStore(RulesProperties properties, ResourceLoader resourceLoader, RuleSetCompiler compiler) {
+    public RuleSetStore(RulesProperties properties, ResourceLoader resourceLoader, RuleSetCompiler compiler,
+            MeterRegistry registry) {
         String location = properties.location();
         if (location == null || location.isBlank()) {
             throw new IllegalStateException("fafsa.rules.location is not set");
@@ -41,7 +49,21 @@ public class RuleSetStore {
             throw new IllegalStateException("Rule set at " + location + " is invalid. " + e.getMessage(), e);
         }
         active.set(ruleSet);
+        loadedAt = Instant.now();
+        Gauge.builder("fafsa.ruleset.rules", active, ref -> ref.get().rules().size())
+                .description("Number of rules in the active rule set")
+                .register(registry);
         log.info("Loaded rule set {} with {} rules from {}", ruleSet.version(), ruleSet.rules().size(), location);
+    }
+
+    /** Shows the active rule set under {@code ruleset} in {@code /actuator/info}. */
+    @Override
+    public void contribute(Info.Builder builder) {
+        CompiledRuleSet ruleSet = active.get();
+        builder.withDetail("ruleset", Map.of(
+                "version", ruleSet.version(),
+                "rules", ruleSet.rules().size(),
+                "loadedAt", loadedAt.toString()));
     }
 
     /** The rule set to use for one request. Take it once per request. */
