@@ -26,7 +26,7 @@ or any file named by `FAFSA_RULES_LOCATION`). Each rule is data plus a small exp
 
 ```yaml
 - id: HOUSEHOLD_COLLEGE_COUNT
-  severity: ERROR
+  severity: WARNING
   requires: [household.numberInHousehold, household.numberInCollege]
   expect: household.numberInCollege <= household.numberInHousehold
   message: "Number in college (${household.numberInCollege}) cannot exceed number in household (${household.numberInHousehold})"
@@ -189,7 +189,16 @@ The response `status` combines both stages:
 | `VALID_WITH_WARNINGS` | 200 | Only `WARNING`/`INFO` rules failed, and/or defaults were applied (`warnings`) |
 | `VALID` | 200 | Every rule passed or did not apply, nothing defaulted |
 
-All 7 current rules are `ERROR`. Changing a rule's severity is a one-word edit in the YAML.
+How the 7 rules are categorized:
+
+- **`ERROR`** (6 rules): required information is missing or invalid, so the application cannot be
+  processed as is: student under 14, malformed SSN, missing parent income for a dependent student,
+  negative income, invalid state code, missing spouse information for a married student.
+- **`WARNING`** (`HOUSEHOLD_COLLEGE_COUNT`): the two household counts contradict each other. Every
+  value is present and well formed, and either count could be the wrong one, so the application is
+  flagged for review (`VALID_WITH_WARNINGS`) rather than rejected.
+
+Changing a rule's severity is a one-word edit in the YAML.
 
 ## 7. Rule conflicts
 

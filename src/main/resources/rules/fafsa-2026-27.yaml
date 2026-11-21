@@ -104,7 +104,9 @@ rules:
         expect: FAILED
 
   - id: HOUSEHOLD_COLLEGE_COUNT
-    severity: ERROR
+    # A warning, not an error: the counts contradict each other, which needs review, but nothing
+    # required is missing or malformed
+    severity: WARNING
     description: Number in college cannot exceed number in household
     requires: [household.numberInHousehold, household.numberInCollege]
     expect: household.numberInCollege <= household.numberInHousehold

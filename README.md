@@ -67,7 +67,7 @@ curl -s -X POST localhost:8080/api/v1/applications/validate \
     "field": "studentInfo.dateOfBirth",
     "message": "Student must be at least 14 years old (date of birth: 2015-01-01)",
     "remediation": "Check the student's date of birth"},
-   {"ruleId": "HOUSEHOLD_COLLEGE_COUNT", "severity": "ERROR", "outcome": "FAILED",
+   {"ruleId": "HOUSEHOLD_COLLEGE_COUNT", "severity": "WARNING", "outcome": "FAILED",
     "field": "household.numberInCollege",
     "message": "Number in college (5) cannot exceed number in household (2)",
     "remediation": "Correct either count; people in college are also counted in the household"}
@@ -139,15 +139,18 @@ Empty lists are left out.
 All seven are in `src/main/resources/rules/fafsa-2026-27.yaml`, each with its own examples that
 run every time the file loads:
 
-| Id | Checks |
-|---|---|
-| `STUDENT_AGE` | Student is at least 14 |
-| `SSN_FORMAT` | SSN is exactly 9 digits |
-| `DEPENDENT_PARENT_INCOME` | Parent income is given when the student is dependent |
-| `NON_NEGATIVE_INCOME` | No income is negative |
-| `HOUSEHOLD_COLLEGE_COUNT` | Number in college does not exceed number in household |
-| `STATE_CODE` | State is a valid US state or territory abbreviation |
-| `MARRIED_SPOUSE_INFO` | Spouse name and SSN are given when the student is married |
+| Id | Severity | Checks |
+|---|---|---|
+| `STUDENT_AGE` | ERROR | Student is at least 14 |
+| `SSN_FORMAT` | ERROR | SSN is exactly 9 digits |
+| `DEPENDENT_PARENT_INCOME` | ERROR | Parent income is given when the student is dependent |
+| `NON_NEGATIVE_INCOME` | ERROR | No income is negative |
+| `HOUSEHOLD_COLLEGE_COUNT` | WARNING | Number in college does not exceed number in household |
+| `STATE_CODE` | ERROR | State is a valid US state or territory abbreviation |
+| `MARRIED_SPOUSE_INFO` | ERROR | Spouse name and SSN are given when the student is married |
+
+An `ERROR` failure makes the application `INVALID`; a `WARNING` failure alone gives
+`VALID_WITH_WARNINGS`.
 
 ### Changing rules
 

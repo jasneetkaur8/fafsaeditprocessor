@@ -128,7 +128,10 @@ class FafsaEditResourceTest {
 
         mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("INVALID"))
+                // HOUSEHOLD_COLLEGE_COUNT is a WARNING: flagged for review, not rejected
+                .andExpect(jsonPath("$.status").value("VALID_WITH_WARNINGS"))
+                .andExpect(jsonPath("$.message").value("Valid application with 4 warnings"))
+                .andExpect(jsonPath("$.violations[0].severity").value("WARNING"))
                 .andExpect(jsonPath("$.violations[0].ruleId").value("HOUSEHOLD_COLLEGE_COUNT"))
                 .andExpect(jsonPath("$.passed").value(contains("STUDENT_AGE", "SSN_FORMAT",
                         "NON_NEGATIVE_INCOME", "STATE_CODE")))
