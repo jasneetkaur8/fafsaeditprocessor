@@ -33,6 +33,7 @@ class ApplicationValidatorTest {
                 """.formatted(STUDENT)));
 
         assertThat(result.application().dependencyStatus()).isEqualTo(DependencyStatus.DEPENDENT);
+        assertThat(result.application().maritalStatus()).isEqualTo(MaritalStatus.MARRIED);
         assertThat(result.application().household()).isEqualTo(new Household(4, 2));
         assertThat(result.application().income()).isEqualTo(new Income(new BigDecimal("5000"), null));
         assertThat(result.defaultsApplied()).isEmpty();
@@ -45,13 +46,13 @@ class ApplicationValidatorTest {
                 """.formatted(STUDENT)));
 
         assertThat(result.application().dependencyStatus()).isEqualTo(DependencyStatus.INDEPENDENT);
-        assertThat(result.application().maritalStatus()).isEqualTo("single");
+        assertThat(result.application().maritalStatus()).isEqualTo(MaritalStatus.SINGLE);
         assertThat(result.application().household()).isEqualTo(new Household(1, 1));
         assertThat(result.defaultsApplied())
                 .extracting(AppliedDefault::field, AppliedDefault::value)
                 .containsExactly(
                         tuple("dependencyStatus", DependencyStatus.INDEPENDENT),
-                        tuple("maritalStatus", "single"),
+                        tuple("maritalStatus", MaritalStatus.SINGLE),
                         tuple("household.numberInHousehold", 1),
                         tuple("household.numberInCollege", 1));
     }
@@ -59,13 +60,13 @@ class ApplicationValidatorTest {
     @Test
     void onlyTheMissingHouseholdCountIsDefaulted() {
         ValidatedApplication result = check(json("""
-                {%s, "household": {"numberInHousehold": 3}, "maritalStatus": " ",
+                {%s, "household": {"numberInHousehold": 3}, "maritalStatus": "married",
                  "income": {"studentIncome": 5000}, "stateOfResidence": "CA"}
                 """.formatted(STUDENT)));
 
         assertThat(result.application().household()).isEqualTo(new Household(3, 1));
         assertThat(result.defaultsApplied()).extracting(AppliedDefault::field)
-                .containsExactly("dependencyStatus", "maritalStatus", "household.numberInCollege");
+                .containsExactly("dependencyStatus", "household.numberInCollege");
     }
 
     @Test
@@ -86,14 +87,24 @@ class ApplicationValidatorTest {
                  "income": {}}
                 """)).extracting(InputError::field, InputError::problem).containsExactly(
                         tuple("dependencyStatus", "must be one of: dependent, independent"),
-                        tuple("household.numberInHousehold", "must be a valid value"),
+                        tuple("household.numberInHousehold", "must be a whole number"),
                         tuple("income", "must have studentIncome or parentIncome"),
                         tuple("nickname", "is not a known field"),
                         tuple("stateOfResidence", "must not be blank"),
-                        tuple("studentInfo.dateOfBirth", "must be a valid value"),
+                        tuple("studentInfo.dateOfBirth", "must be a valid date in yyyy-MM-dd format"),
                         tuple("studentInfo.firstName", "must not be blank"),
                         tuple("studentInfo.lastName", "must not be blank"),
                         tuple("studentInfo.ssn", "must not be blank"));
+    }
+
+    @Test
+    void defaultsAreReportedWithErrorsExceptForFieldsThatHaveAnError() {
+        Throwable thrown = catchThrowable(() -> validator.toApplication(json("""
+                {"maritalStatus": "widowed", "household": {"numberInHousehold": "four"}, "stateOfResidence": "CA"}
+                """)));
+
+        assertThat(((InvalidApplicationException) thrown).getWarnings()).extracting(AppliedDefault::field)
+                .containsExactly("dependencyStatus", "household.numberInCollege");
     }
 
     @Test
@@ -107,7 +118,7 @@ class ApplicationValidatorTest {
     void badIncomeAmountIsNotAlsoReportedAsNoIncome() {
         assertThat(errorsOf("""
                 {%s, "income": {"studentIncome": "lots"}, "stateOfResidence": "CA"}
-                """.formatted(STUDENT))).containsExactly(new InputError("income.studentIncome", "must be a valid value"));
+                """.formatted(STUDENT))).containsExactly(new InputError("income.studentIncome", "must be a number"));
     }
 
     @Test

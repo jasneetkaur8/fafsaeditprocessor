@@ -1,6 +1,7 @@
 package com.fafsa.editprocessor.input;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
@@ -11,18 +12,19 @@ import java.time.LocalDate;
  *
  * <p>{@link ApplicationValidator} binds the request to this record field by field and reports
  * every problem in one response: values of the wrong type (text for a number, a date not in
- * {@code yyyy-MM-dd} form, a {@link DependencyStatus} other than dependent/independent), missing
- * required information (the Bean Validation annotations below), and income with no amount.
+ * {@code yyyy-MM-dd} form, a {@link DependencyStatus} or {@link MaritalStatus} outside its values), missing
+ * required information (the Bean Validation annotations below), income amounts with more than 2
+ * decimal places, and income with no amount.
  * Other fields may be missing: {@link ApplicationValidator} defaults them, and the rules decide
  * on the rest.
  */
 public record FafsaApplication(
         @NotNull @Valid StudentInfo studentInfo,
         DependencyStatus dependencyStatus,
-        String maritalStatus,
+        MaritalStatus maritalStatus,
         SpouseInfo spouseInfo,
         Household household,
-        @NotNull Income income,
+        @NotNull @Valid Income income,
         @NotBlank String stateOfResidence) {
 
     /** Required, with every field: blank text counts as missing. */
@@ -47,7 +49,9 @@ public record FafsaApplication(
 
     /** Required; {@link ApplicationValidator} also checks that at least one amount is provided. */
     public record Income(
-            BigDecimal studentIncome,
-            BigDecimal parentIncome) {
+            @Digits(integer = 15, fraction = 2, message = MONEY) BigDecimal studentIncome,
+            @Digits(integer = 15, fraction = 2, message = MONEY) BigDecimal parentIncome) {
+
+        static final String MONEY = "must be an amount with at most 2 decimal places";
     }
 }

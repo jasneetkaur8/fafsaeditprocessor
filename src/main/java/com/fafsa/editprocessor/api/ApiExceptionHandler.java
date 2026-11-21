@@ -1,6 +1,7 @@
 package com.fafsa.editprocessor.api;
 
 import com.fafsa.editprocessor.input.InvalidApplicationException;
+import java.util.List;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -14,11 +15,12 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
- * Turns request problems into RFC 7807 problem responses (400 unless noted):
+ * Turns request problems into error responses:
  * <ul>
- *   <li>body is not a single valid JSON object: "Malformed application"</li>
- *   <li>bad values or missing required fields: "Invalid application", listing every problem</li>
- *   <li>unknown URL: 404 without echoing the path</li>
+ *   <li>the application input fails its checks (bad values, missing required fields, or a body
+ *       that is not a single JSON object): 400 with {@code status} INVALID_INPUT, {@code message},
+ *       {@code errors} and any {@code warnings}, the same shape as other validation responses</li>
+ *   <li>unknown URL: 404 problem detail, without echoing the path</li>
  * </ul>
  */
 @RestControllerAdvice
@@ -27,18 +29,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(
             HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, "Request body must be a single valid JSON object");
-        problem.setTitle("Malformed application");
-        return handleExceptionInternal(ex, problem, headers, HttpStatus.BAD_REQUEST, request);
+        ValidationResponse body = ValidationResponse.invalidInput(
+                "Request body must be a single valid JSON object", List.of(), List.of());
+        return handleExceptionInternal(ex, body, headers, HttpStatus.BAD_REQUEST, request);
     }
 
     @ExceptionHandler(InvalidApplicationException.class)
-    ProblemDetail handleInvalidApplication(InvalidApplicationException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
-        problem.setTitle("Invalid application");
-        problem.setProperty("errors", ex.getErrors());
-        return problem;
+    ResponseEntity<ValidationResponse> handleInvalidApplication(InvalidApplicationException ex) {
+        return ResponseEntity.badRequest().body(ValidationResponse.invalidInput(ex.getMessage(), ex.getErrors(), ex.getWarnings()));
     }
 
     /** Spring's default detail repeats the path, so give a generic one instead. */

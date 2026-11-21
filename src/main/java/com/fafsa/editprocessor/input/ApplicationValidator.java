@@ -9,6 +9,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import java.lang.reflect.RecordComponent;
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -26,18 +28,19 @@ import org.springframework.stereotype.Component;
  * <ol>
  *   <li><b>Values</b>: each field is bound to its type in {@link FafsaApplication} on its own, with
  *       the strict JSON settings, so one bad value does not hide the others. Reported: unknown
- *       fields, wrong types, bad dates, values outside an enum (naming the allowed values), text
- *       where an object belongs.</li>
- *   <li><b>Required fields</b>: the Bean Validation annotations on {@link FafsaApplication}
- *       ({@code studentInfo} and its fields, {@code income}, {@code stateOfResidence}).</li>
+ *       fields, wrong types (each message says what is expected: a {@code yyyy-MM-dd} date, a
+ *       whole number, an amount, text, or one of an enum's values), text where an object belongs.</li>
+ *   <li><b>Bean Validation</b>: the annotations on {@link FafsaApplication}: required fields
+ *       ({@code studentInfo} and its fields, {@code income}, {@code stateOfResidence}) and income
+ *       amounts with at most 2 decimal places.</li>
  *   <li><b>Income</b>: at least one of {@code studentIncome} or {@code parentIncome}.</li>
  * </ol>
  * A field with a bad value is not also reported as missing.
  *
- * <p>Defaulted when missing or blank, each reported back as an {@link AppliedDefault}:
+ * <p>Defaulted when missing, each reported back as an {@link AppliedDefault}:
  * <ul>
  *   <li>{@code dependencyStatus} → {@code independent}</li>
- *   <li>{@code maritalStatus} → {@value #DEFAULT_MARITAL_STATUS}</li>
+ *   <li>{@code maritalStatus} → {@code single}</li>
  *   <li>{@code household.numberInHousehold} and {@code household.numberInCollege} → 1 each</li>
  * </ul>
  */
@@ -45,10 +48,14 @@ import org.springframework.stereotype.Component;
 public class ApplicationValidator {
 
     public static final DependencyStatus DEFAULT_DEPENDENCY_STATUS = DependencyStatus.INDEPENDENT;
-    public static final String DEFAULT_MARITAL_STATUS = "single";
+    public static final MaritalStatus DEFAULT_MARITAL_STATUS = MaritalStatus.SINGLE;
     public static final int DEFAULT_HOUSEHOLD_COUNT = 1;
 
     static final String INVALID_VALUE = "must be a valid value";
+    static final String INVALID_DATE = "must be a valid date in yyyy-MM-dd format";
+    static final String INVALID_WHOLE_NUMBER = "must be a whole number";
+    static final String INVALID_AMOUNT = "must be a number";
+    static final String INVALID_TEXT = "must be text";
     static final String UNKNOWN_FIELD = "is not a known field";
     static final String NOT_AN_OBJECT = "must be an object";
     static final String NO_INCOME = "must have studentIncome or parentIncome";
@@ -64,7 +71,8 @@ public class ApplicationValidator {
     /**
      * Binds a request body to a {@link FafsaApplication} and checks it.
      *
-     * @throws InvalidApplicationException listing every problem, sorted by field
+     * @throws InvalidApplicationException listing every problem, sorted by field, plus the
+     *         defaults that would apply to the fields without problems
      */
     public FafsaApplication toApplication(ObjectNode body) {
         List<InputError> errors = new ArrayList<>();
@@ -79,7 +87,11 @@ public class ApplicationValidator {
         }
         if (!errors.isEmpty()) {
             errors.sort(Comparator.comparing(InputError::field).thenComparing(InputError::problem));
-            throw new InvalidApplicationException(errors);
+            // Still say what would be defaulted, except for fields that already have an error
+            List<AppliedDefault> warnings = applyDefaults(application).defaultsApplied().stream()
+                    .filter(d -> !isReported(errors, d.field()))
+                    .toList();
+            throw new InvalidApplicationException(errors, warnings);
         }
         return application;
     }
@@ -93,7 +105,7 @@ public class ApplicationValidator {
             try {
                 return mapper.treeToValue(node, type);
             } catch (JsonProcessingException | IllegalArgumentException e) {
-                errors.add(new InputError(path, type.isEnum() ? oneOf(type) : INVALID_VALUE));
+                errors.add(new InputError(path, invalidValue(type)));
                 return null;
             }
         }
@@ -123,11 +135,35 @@ public class ApplicationValidator {
 
     /** Skips a problem on a field already reported, or inside or around one (a bad value is not also "missing"). */
     private static void addUnlessReported(List<InputError> errors, String field, String problem) {
-        boolean reported = errors.stream().map(InputError::field).anyMatch(existing -> existing.equals(field)
-                || field.startsWith(existing + ".") || existing.startsWith(field + "."));
-        if (!reported) {
+        if (!isReported(errors, field)) {
             errors.add(new InputError(field, problem));
         }
+    }
+
+    /** Whether {@code field}, or a field inside or around it, already has an error. */
+    private static boolean isReported(List<InputError> errors, String field) {
+        return errors.stream().map(InputError::field).anyMatch(existing -> existing.equals(field)
+                || field.startsWith(existing + ".") || existing.startsWith(field + "."));
+    }
+
+    /** What a value of {@code type} must look like, for the error message. */
+    private static String invalidValue(Class<?> type) {
+        if (type.isEnum()) {
+            return oneOf(type);
+        }
+        if (type == LocalDate.class) {
+            return INVALID_DATE;
+        }
+        if (type == Integer.class) {
+            return INVALID_WHOLE_NUMBER;
+        }
+        if (type == BigDecimal.class) {
+            return INVALID_AMOUNT;
+        }
+        if (type == String.class) {
+            return INVALID_TEXT;
+        }
+        return INVALID_VALUE;
     }
 
     /** e.g. "must be one of: dependent, independent" (an enum's {@code toString()} is its JSON value). */
@@ -150,8 +186,8 @@ public class ApplicationValidator {
             defaults.add(new AppliedDefault("dependencyStatus", dependencyStatus,
                     "Dependency status not provided; defaulted to " + dependencyStatus));
         }
-        String maritalStatus = application.maritalStatus();
-        if (isBlank(maritalStatus)) {
+        MaritalStatus maritalStatus = application.maritalStatus();
+        if (maritalStatus == null) {
             maritalStatus = DEFAULT_MARITAL_STATUS;
             defaults.add(new AppliedDefault("maritalStatus", maritalStatus,
                     "Marital status not provided; defaulted to " + maritalStatus));
@@ -183,9 +219,5 @@ public class ApplicationValidator {
                     "Number in college not provided; defaulted to " + inCollege));
         }
         return new Household(inHousehold, inCollege);
-    }
-
-    private static boolean isBlank(String value) {
-        return value == null || value.isBlank();
     }
 }

@@ -6,6 +6,7 @@ import com.fafsa.editprocessor.compiler.CompiledRuleSet;
 import com.fafsa.editprocessor.compiler.RuleSetCompiler;
 import com.fafsa.editprocessor.input.DependencyStatus;
 import com.fafsa.editprocessor.input.FafsaApplication;
+import com.fafsa.editprocessor.input.MaritalStatus;
 import com.fafsa.editprocessor.input.FafsaApplication.Household;
 import com.fafsa.editprocessor.input.FafsaApplication.Income;
 import com.fafsa.editprocessor.input.FafsaApplication.StudentInfo;
@@ -26,7 +27,7 @@ class RuleEngineTest {
 
     private static final FafsaApplication APPLICATION = new FafsaApplication(
             new StudentInfo("Jane", "Smith", "123456789", LocalDate.of(2003, 5, 15)),
-            DependencyStatus.INDEPENDENT, "single", null, new Household(3, 1),
+            DependencyStatus.INDEPENDENT, MaritalStatus.SINGLE, null, new Household(3, 1),
             new Income(new BigDecimal("12.50"), null), "CA");
 
     @Test
