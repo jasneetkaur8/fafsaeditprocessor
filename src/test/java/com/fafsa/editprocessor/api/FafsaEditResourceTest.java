@@ -306,6 +306,55 @@ class FafsaEditResourceTest {
                 .andExpect(jsonPath("$.type").doesNotExist());
     }
 
+    private static final String BATCH_URL = "/api/v1/applications/validate/batch";
+
+    @Test
+    void batchReportsEachApplicationIndependently() throws Exception {
+        String body = "[" + Files.readString(Path.of("examples/valid-application.json")) + ","
+                + Files.readString(Path.of("examples/invalid-application.json")) + ","
+                + "{\"dependencyStatus\": \"abc\", \"income\": {\"studentIncome\": 1}, \"stateOfResidence\": \"CA\"},"
+                + "\"not an application\"]";
+
+        mvc.perform(post(BATCH_URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results.length()").value(4))
+                .andExpect(jsonPath("$.results[*].index").value(contains(0, 1, 2, 3)))
+                .andExpect(jsonPath("$.results[*].status").value(contains(
+                        "VALID", "INVALID", "INVALID_INPUT", "INVALID_INPUT")))
+                // Same shape as the single endpoint: empty lists are left out
+                .andExpect(jsonPath("$.results[0].message").value("Valid application"))
+                .andExpect(jsonPath("$.results[0].errors").doesNotExist())
+                .andExpect(jsonPath("$.results[0].warnings").doesNotExist())
+                .andExpect(jsonPath("$.results[0].violations").doesNotExist())
+                .andExpect(jsonPath("$.results[1].violations.length()").value(7))
+                .andExpect(jsonPath("$.results[2].errors[*].field").value(contains("dependencyStatus", "studentInfo")))
+                .andExpect(jsonPath("$.results[2].warnings[*].field").value(contains(
+                        "maritalStatus", "household.numberInHousehold", "household.numberInCollege")))
+                .andExpect(jsonPath("$.results[3].message").value("Application must be a JSON object"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', textBlock = """
+            object instead of array | {"stateOfResidence": "CA"}  | Request body must be a valid JSON array of applications
+            broken JSON             | [ {                         | Request body must be a valid JSON array of applications
+            duplicate key           | [{"a": 1, "a": 2}]          | Request body must be a valid JSON array of applications
+            empty batch             | []                          | Batch must contain at least one application
+            """)
+    void unusableBatchIsRejected(String scenario, String body, String message) throws Exception {
+        mvc.perform(post(BATCH_URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"status\": \"INVALID_INPUT\", \"message\": \"" + message + "\"}", true));
+    }
+
+    @Test
+    void batchOverTheLimitIsRejected() throws Exception {
+        String body = "[" + String.join(",", java.util.Collections.nCopies(1001, "{}")) + "]";
+
+        mvc.perform(post(BATCH_URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Batch must contain at most 1000 applications"));
+    }
+
     private static String withIncome(String incomeJson) {
         return """
                 {"studentInfo": {"firstName": "Jane", "lastName": "Smith",

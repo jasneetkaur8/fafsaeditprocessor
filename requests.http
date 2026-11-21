@@ -14,3 +14,15 @@ POST http://localhost:8080/api/v1/applications/validate
 Content-Type: application/json
 
 < ./examples/invalid-application.json
+
+### Validate a batch (each application gets its own result, by index)
+POST http://localhost:8080/api/v1/applications/validate/batch
+Content-Type: application/json
+
+[
+  {"studentInfo": {"firstName": "Jane", "lastName": "Smith", "ssn": "123456789", "dateOfBirth": "2003-05-15"},
+   "dependencyStatus": "dependent", "maritalStatus": "single",
+   "household": {"numberInHousehold": 4, "numberInCollege": 1},
+   "income": {"studentIncome": 5000, "parentIncome": 65000}, "stateOfResidence": "CA"},
+  {"dependencyStatus": "abc", "income": {"studentIncome": 1}, "stateOfResidence": "CA"}
+]
