@@ -2,7 +2,7 @@ package com.fafsa.editprocessor.input;
 
 import java.util.List;
 
-/** Thrown when an application is missing required information. */
+/** Required information is missing, found by a check Bean Validation cannot express. */
 public class IncompleteApplicationException extends RuntimeException {
 
     private final List<String> missingFields;
@@ -12,7 +12,7 @@ public class IncompleteApplicationException extends RuntimeException {
         this.missingFields = List.copyOf(missingFields);
     }
 
-    /** Paths of the missing fields, e.g. {@code studentInfo.ssn}. */
+    /** Paths of the missing fields, e.g. {@code income}. */
     public List<String> getMissingFields() {
         return missingFields;
     }

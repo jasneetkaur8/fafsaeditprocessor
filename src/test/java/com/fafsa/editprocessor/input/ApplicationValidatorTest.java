@@ -74,34 +74,16 @@ class ApplicationValidatorTest {
     }
 
     @Test
-    void missingRequiredSectionsAreAllReported() {
-        FafsaApplication app = new FafsaApplication(null, null, null, null, null, null, null);
+    void incomeWithNeitherAmountIsRejected() {
+        FafsaApplication app = new FafsaApplication(STUDENT, null, null, null, null, new Income(null, null), "CA");
 
         assertThatThrownBy(() -> validator.validate(app))
                 .isInstanceOfSatisfying(IncompleteApplicationException.class, ex ->
-                        assertThat(ex.getMissingFields())
-                                .containsExactly("studentInfo", "income", "stateOfResidence"));
+                        assertThat(ex.getMissingFields()).containsExactly("income"));
     }
 
     @Test
-    void missingRequiredSubfieldsAreAllReported() {
-        FafsaApplication app = new FafsaApplication(
-                new StudentInfo(" ", null, "", null), null, null, null, null,
-                new Income(null, null), " ");
-
-        assertThatThrownBy(() -> validator.validate(app))
-                .isInstanceOfSatisfying(IncompleteApplicationException.class, ex ->
-                        assertThat(ex.getMissingFields()).containsExactly(
-                                "studentInfo.firstName",
-                                "studentInfo.lastName",
-                                "studentInfo.ssn",
-                                "studentInfo.dateOfBirth",
-                                "income",
-                                "stateOfResidence"));
-    }
-
-    @Test
-    void parentIncomeAloneSatisfiesTheIncomeRequirement() {
+    void parentIncomeAloneIsEnough() {
         FafsaApplication app = new FafsaApplication(STUDENT, null, null, null, null,
                 new Income(null, new BigDecimal("65000")), "CA");
 
