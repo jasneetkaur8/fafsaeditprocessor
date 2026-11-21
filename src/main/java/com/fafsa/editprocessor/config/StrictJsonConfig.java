@@ -29,6 +29,7 @@ import org.springframework.context.annotation.Configuration;
  *   <li>a number or boolean for a text field (default: converted to text)</li>
  *   <li>{@code ""} for a non-text field (default: {@code null})</li>
  *   <li>a number or array for a date (default: epoch day / {@code [y,m,d]})</li>
+ *   <li>a number for an enum (default: taken as the constant's position)</li>
  * </ul>
  */
 @Configuration
@@ -41,6 +42,7 @@ public class StrictJsonConfig {
                         DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
                         DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
                         DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES,
+                        DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS,
                         JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
                 .featuresToDisable(
                         DeserializationFeature.ACCEPT_FLOAT_AS_INT,

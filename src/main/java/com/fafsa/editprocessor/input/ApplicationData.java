@@ -38,6 +38,7 @@ public final class ApplicationData {
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
             .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
             .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
+            .enable(DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS)
             .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
             .build();
 

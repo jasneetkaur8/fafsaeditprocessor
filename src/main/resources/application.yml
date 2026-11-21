@@ -8,6 +8,9 @@ spring:
 
 server:
   port: 8080
+  error:
+    # Spring Boot's fallback error response (e.g. an unexpected 500) must not reveal the request path
+    include-path: never
 
 management:
   endpoints:

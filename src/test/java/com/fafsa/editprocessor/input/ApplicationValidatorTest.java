@@ -21,7 +21,7 @@ class ApplicationValidatorTest {
 
     @Test
     void completeApplicationIsReturnedUnchangedWithNoDefaults() {
-        FafsaApplication app = new FafsaApplication(STUDENT, "dependent", "married", null,
+        FafsaApplication app = new FafsaApplication(STUDENT, DependencyStatus.DEPENDENT, "married", null,
                 new Household(4, 2), INCOME, "CA");
 
         ValidatedApplication result = validator.validate(app);
@@ -36,26 +36,26 @@ class ApplicationValidatorTest {
 
         ValidatedApplication result = validator.validate(app);
 
-        assertThat(result.application().dependencyStatus()).isEqualTo("independent");
+        assertThat(result.application().dependencyStatus()).isEqualTo(DependencyStatus.INDEPENDENT);
         assertThat(result.application().maritalStatus()).isEqualTo("single");
         assertThat(result.application().household()).isEqualTo(new Household(1, 1));
         assertThat(result.defaultsApplied())
                 .extracting(AppliedDefault::field, AppliedDefault::value)
                 .containsExactly(
-                        tuple("dependencyStatus", "independent"),
+                        tuple("dependencyStatus", DependencyStatus.INDEPENDENT),
                         tuple("maritalStatus", "single"),
                         tuple("household.numberInHousehold", 1),
                         tuple("household.numberInCollege", 1));
     }
 
     @Test
-    void blankStatusesAreDefaulted() {
-        FafsaApplication app = new FafsaApplication(STUDENT, "  ", "", null,
+    void missingDependencyAndBlankMaritalStatusAreDefaulted() {
+        FafsaApplication app = new FafsaApplication(STUDENT, null, "", null,
                 new Household(3, 1), INCOME, "CA");
 
         ValidatedApplication result = validator.validate(app);
 
-        assertThat(result.application().dependencyStatus()).isEqualTo("independent");
+        assertThat(result.application().dependencyStatus()).isEqualTo(DependencyStatus.INDEPENDENT);
         assertThat(result.application().maritalStatus()).isEqualTo("single");
         assertThat(result.defaultsApplied()).extracting(AppliedDefault::field)
                 .containsExactly("dependencyStatus", "maritalStatus");
@@ -63,7 +63,7 @@ class ApplicationValidatorTest {
 
     @Test
     void onlyTheMissingHouseholdCountIsDefaulted() {
-        FafsaApplication app = new FafsaApplication(STUDENT, "independent", "single", null,
+        FafsaApplication app = new FafsaApplication(STUDENT, DependencyStatus.INDEPENDENT, "single", null,
                 new Household(3, null), INCOME, "CA");
 
         ValidatedApplication result = validator.validate(app);
@@ -87,7 +87,7 @@ class ApplicationValidatorTest {
     void missingRequiredSubfieldsAreAllReported() {
         FafsaApplication app = new FafsaApplication(
                 new StudentInfo(" ", null, "", null), null, null, null, null,
-                new Income(null, new BigDecimal("65000")), " ");
+                new Income(null, null), " ");
 
         assertThatThrownBy(() -> validator.validate(app))
                 .isInstanceOfSatisfying(IncompleteApplicationException.class, ex ->
@@ -96,7 +96,16 @@ class ApplicationValidatorTest {
                                 "studentInfo.lastName",
                                 "studentInfo.ssn",
                                 "studentInfo.dateOfBirth",
-                                "income.studentIncome",
+                                "income",
                                 "stateOfResidence"));
+    }
+
+    @Test
+    void parentIncomeAloneSatisfiesTheIncomeRequirement() {
+        FafsaApplication app = new FafsaApplication(STUDENT, null, null, null, null,
+                new Income(null, new BigDecimal("65000")), "CA");
+
+        assertThat(validator.validate(app).application().income())
+                .isEqualTo(new Income(null, new BigDecimal("65000")));
     }
 }

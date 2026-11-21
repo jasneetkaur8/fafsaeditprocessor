@@ -12,7 +12,7 @@ import java.time.LocalDate;
  */
 public record FafsaApplication(
         StudentInfo studentInfo,
-        String dependencyStatus,
+        DependencyStatus dependencyStatus,
         String maritalStatus,
         SpouseInfo spouseInfo,
         Household household,

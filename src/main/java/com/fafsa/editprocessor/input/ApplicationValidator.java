@@ -22,7 +22,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>Defaulted when missing or blank, each reported back as an {@link AppliedDefault}:
  * <ul>
- *   <li>{@code dependencyStatus} → {@value #DEFAULT_DEPENDENCY_STATUS}</li>
+ *   <li>{@code dependencyStatus} → {@code independent} (only {@code dependent} or
+ *       {@code independent} are accepted, at binding time)</li>
  *   <li>{@code maritalStatus} → {@value #DEFAULT_MARITAL_STATUS}</li>
  *   <li>{@code household.numberInHousehold} and {@code household.numberInCollege} → 1 each</li>
  * </ul>
@@ -32,7 +33,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ApplicationValidator {
 
-    public static final String DEFAULT_DEPENDENCY_STATUS = "independent";
+    public static final DependencyStatus DEFAULT_DEPENDENCY_STATUS = DependencyStatus.INDEPENDENT;
     public static final String DEFAULT_MARITAL_STATUS = "single";
     public static final int DEFAULT_HOUSEHOLD_COUNT = 1;
 
@@ -53,8 +54,8 @@ public class ApplicationValidator {
         }
 
         List<AppliedDefault> defaults = new ArrayList<>();
-        String dependencyStatus = application.dependencyStatus();
-        if (isBlank(dependencyStatus)) {
+        DependencyStatus dependencyStatus = application.dependencyStatus();
+        if (dependencyStatus == null) {
             dependencyStatus = DEFAULT_DEPENDENCY_STATUS;
             defaults.add(new AppliedDefault("dependencyStatus", dependencyStatus,
                     "Dependency status not provided; defaulted to " + dependencyStatus));
@@ -100,8 +101,8 @@ public class ApplicationValidator {
     private static void checkIncome(Income income, List<String> missing) {
         if (income == null) {
             missing.add("income");
-        } else if (income.studentIncome() == null) {
-            missing.add("income.studentIncome");
+        } else if (income.studentIncome() == null && income.parentIncome() == null) {
+            missing.add("income");
         }
     }
 

@@ -162,6 +162,8 @@ class FafsaEditResourceTest {
                 .andExpect(jsonPath("$.detail").value("Missing required fields: studentInfo.firstName, "
                         + "studentInfo.lastName, studentInfo.ssn, studentInfo.dateOfBirth, income, "
                         + "stateOfResidence"))
+                .andExpect(jsonPath("$.instance").doesNotExist())
+                .andExpect(jsonPath("$.type").doesNotExist())
                 .andExpect(jsonPath("$.missingFields.length()").value(6))
                 .andExpect(jsonPath("$.missingFields[0]").value("studentInfo.firstName"));
     }
@@ -183,6 +185,11 @@ class FafsaEditResourceTest {
             wrong date format         | {"studentInfo": {"dateOfBirth": "15/05/2003"}}      | Invalid value for field 'studentInfo.dateOfBirth': expected LocalDate
             impossible date           | {"studentInfo": {"dateOfBirth": "2003-02-30"}}      | Invalid value for field 'studentInfo.dateOfBirth': expected LocalDate
             object for text           | {"maritalStatus": {"value": "single"}}              | Invalid value for field 'maritalStatus': expected String
+            unknown dependency status | {"dependencyStatus": "unknown"}                     | Invalid value for field 'dependencyStatus': expected one of dependent, independent
+            dependency status casing  | {"dependencyStatus": "Dependent"}                   | Invalid value for field 'dependencyStatus': expected one of dependent, independent
+            enum constant name        | {"dependencyStatus": "DEPENDENT"}                   | Invalid value for field 'dependencyStatus': expected one of dependent, independent
+            empty dependency status   | {"dependencyStatus": ""}                            | Invalid value for field 'dependencyStatus': expected one of dependent, independent
+            number for enum           | {"dependencyStatus": 0}                             | Invalid value for field 'dependencyStatus': expected one of dependent, independent
             array instead of object   | [1, 2, 3]                                           | Request body must be a single JSON object
             trailing content          | {} {}                                               | Request body must be a single JSON object
             """)
@@ -190,7 +197,9 @@ class FafsaEditResourceTest {
         mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Malformed application"))
-                .andExpect(jsonPath("$.detail").value(expectedDetail));
+                .andExpect(jsonPath("$.detail").value(expectedDetail))
+                .andExpect(jsonPath("$.instance").doesNotExist())
+                .andExpect(jsonPath("$.type").doesNotExist());
     }
 
     @Test
@@ -218,6 +227,19 @@ class FafsaEditResourceTest {
     @Test
     void nonJsonContentTypeIsRejected() throws Exception {
         mvc.perform(post(URL).contentType(MediaType.TEXT_PLAIN).content("hello"))
-                .andExpect(status().isUnsupportedMediaType());
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.instance").doesNotExist())
+                .andExpect(jsonPath("$.type").doesNotExist());
+    }
+
+    @Test
+    void unknownPathDoesNotRevealThePath() throws Exception {
+        mvc.perform(post("/api/v1/nowhere").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("Resource not found"))
+                .andExpect(jsonPath("$.instance").doesNotExist())
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("nowhere"))));
     }
 }

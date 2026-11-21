@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
+import java.util.Arrays;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Returns RFC 7807 problem details, and says which field was wrong when the body
@@ -33,6 +35,17 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, describe(ex));
         problem.setTitle("Malformed application");
         return handleExceptionInternal(ex, problem, headers, HttpStatus.BAD_REQUEST, request);
+    }
+
+    /** Unknown URL. Spring's default detail repeats the path, so give a generic one instead. */
+    @Override
+    protected ResponseEntity<Object> handleNoResourceFoundException(
+            NoResourceFoundException ex,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "Resource not found");
+        return handleExceptionInternal(ex, problem, headers, HttpStatus.NOT_FOUND, request);
     }
 
     /** Required information is missing: 400 listing every missing field, not just the first. */
@@ -56,10 +69,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 // Top-level problem: an array or scalar instead of an object, or trailing content
                 return "Request body must be a single JSON object";
             }
+            Class<?> target = mismatch.getTargetType();
+            if (target != null && target.isEnum()) {
+                return "Invalid value for field '" + path + "': expected one of " + allowedValues(target);
+            }
             return "Invalid value for field '" + path + "'"
-                    + (mismatch.getTargetType() != null
-                            ? ": expected " + mismatch.getTargetType().getSimpleName()
-                            : "");
+                    + (target != null ? ": expected " + target.getSimpleName() : "");
         }
         JsonProcessingException parse = findCause(ex, JsonProcessingException.class);
         if (parse != null) {
@@ -67,6 +82,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             return "Request body is not valid JSON: " + parse.getOriginalMessage();
         }
         return "Request body is missing or unreadable";
+    }
+
+    /** An enum's JSON values (its {@code toString()}, which our enums align with {@code @JsonValue}). */
+    private static String allowedValues(Class<?> enumType) {
+        return Arrays.stream(enumType.getEnumConstants())
+                .map(Object::toString)
+                .collect(Collectors.joining(", "));
     }
 
     /** First exception of the given type in the cause chain (Jackson nests date-parse errors). */
