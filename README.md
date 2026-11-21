@@ -26,13 +26,13 @@ Windows: use `mvnw.cmd`. Health check: http://localhost:8080/actuator/health
 
 - [x] 1. Scaffold
 - [ ] 2. Input as generic JSON (`input`)
-- [ ] 3. Rule-set format (`ruleset`)
-- [ ] 4. Compiler and validator (`compiler`)
-- [ ] 5. Helper functions (`functions`)
-- [ ] 6. Engine (`engine`)
-- [ ] 7. The 7 rules in YAML (`resources/rules/fafsa-2026-27.yaml`)
+- [x] 3. Rule-set format (`ruleset`)
+- [x] 4. Compiler and validator (`compiler`)
+- [x] 5. Helper functions (`functions`)
+- [x] 6. Engine (`engine`)
+- [x] 7. The 7 rules in YAML (`resources/rules/fafsa-2026-27.yaml`)
 - [ ] 8. Rule store and runtime activation (`store`)
-- [ ] 9. Validation API (`api`)
+- [x] 9. Validation API (`api`)
 - [ ] 10. Rule admin API (`api`)
 - [ ] 11. Logging and metrics
 - [ ] 12. Documentation

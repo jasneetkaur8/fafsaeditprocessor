@@ -1,36 +1,173 @@
 # FAFSA edit rules, 2026-27 cycle.
 # Written in CEL (https://cel.dev). See RULE_AUTHORING.md for the format.
 #
-# Step 7: add the 7 required rules here, each with its own `tests`.
-#   1. STUDENT_AGE               student is at least 14
-#   2. SSN_FORMAT                SSN is exactly 9 digits
-#   3. DEPENDENT_PARENT_INCOME   parent income required when dependent
-#   4. NON_NEGATIVE_INCOME       income values are not negative
-#   5. HOUSEHOLD_COLLEGE_COUNT   numberInCollege <= numberInHousehold
-#   6. STATE_CODE                valid US state abbreviation
-#   7. MARRIED_SPOUSE_INFO       spouse info required when married
+# Changing a rule needs no code change: edit this file (or point FAFSA_RULES_LOCATION at your own
+# copy) and restart. The file is checked when it loads, and every rule's `tests` must pass, or the
+# application refuses to start, so a broken rule never goes live.
+#
+# Required information (student info, income, state) and defaults (dependency status, marital
+# status, household counts) are applied before these rules run.
 
-rulesetVersion: "2026-27.0-draft"
+rulesetVersion: "2026-27.1"
 
 lists:
   usStates: [AL, AK, AZ, AR, CA, CO, CT, DE, FL, GA, HI, ID, IL, IN, IA, KS, KY, LA, ME, MD,
              MA, MI, MN, MS, MO, MT, NE, NV, NH, NJ, NM, NY, NC, ND, OH, OK, OR, PA, RI, SC,
              SD, TN, TX, UT, VT, VA, WA, WV, WI, WY, DC, AS, GU, MP, PR, VI]
 
-rules: []
+rules:
 
-# Example of the format (remove once real rules exist):
-#
-#  - id: HOUSEHOLD_COLLEGE_COUNT
-#    severity: ERROR
-#    description: Number in college cannot exceed number in household
-#    requires: [household.numberInHousehold, household.numberInCollege]
-#    expect: household.numberInCollege <= household.numberInHousehold
-#    field: household.numberInCollege
-#    message: "Number in college (${household.numberInCollege}) cannot exceed number in household (${household.numberInHousehold})"
-#    remediation: Correct either count; people in college are also counted in the household
-#    tests:
-#      - input: { household: { numberInHousehold: 2, numberInCollege: 5 } }
-#        expect: FAILED
-#      - input: { household: { numberInHousehold: 4, numberInCollege: 1 } }
-#        expect: PASSED
+  - id: STUDENT_AGE
+    severity: ERROR
+    description: Student must be at least 14 years old
+    requires: [studentInfo.dateOfBirth]
+    expect: ageInYears(studentInfo.dateOfBirth) >= 14
+    field: studentInfo.dateOfBirth
+    message: "Student must be at least 14 years old (date of birth: ${studentInfo.dateOfBirth})"
+    remediation: Check the student's date of birth
+    tests:
+      - name: adult
+        input: { studentInfo: { dateOfBirth: "1990-01-01" } }
+        expect: PASSED
+      - name: born in the future
+        input: { studentInfo: { dateOfBirth: "2099-01-01" } }
+        expect: FAILED
+      - name: no date of birth
+        input: { studentInfo: { firstName: Jane } }
+        expect: NOT_APPLICABLE
+
+  - id: SSN_FORMAT
+    severity: ERROR
+    description: SSN must be exactly 9 digits
+    requires: [studentInfo.ssn]
+    expect: studentInfo.ssn.matches('^[0-9]{9}$')
+    field: studentInfo.ssn
+    # The SSN itself is never echoed back in the message
+    message: SSN must be exactly 9 digits, with no dashes or spaces
+    remediation: Enter the 9-digit Social Security Number, digits only
+    tests:
+      - input: { studentInfo: { ssn: "123456789" } }
+        expect: PASSED
+      - name: letters
+        input: { studentInfo: { ssn: "invalid" } }
+        expect: FAILED
+      - name: dashes
+        input: { studentInfo: { ssn: "123-45-6789" } }
+        expect: FAILED
+      - name: too short
+        input: { studentInfo: { ssn: "12345678" } }
+        expect: FAILED
+      - name: too long
+        input: { studentInfo: { ssn: "1234567890" } }
+        expect: FAILED
+
+  - id: DEPENDENT_PARENT_INCOME
+    severity: ERROR
+    description: Parent income is required when the student is dependent
+    when: dependencyStatus == "dependent"
+    expect: has(income.parentIncome)
+    field: income.parentIncome
+    message: Parent income is required for a dependent student
+    remediation: Enter the parents' income, or check the dependency status
+    tests:
+      - input: { dependencyStatus: dependent, income: { studentIncome: 5000, parentIncome: 65000 } }
+        expect: PASSED
+      - name: zero parent income is still provided
+        input: { dependencyStatus: dependent, income: { parentIncome: 0 } }
+        expect: PASSED
+      - input: { dependencyStatus: dependent, income: { studentIncome: 5000 } }
+        expect: FAILED
+      - name: independent student
+        input: { dependencyStatus: independent, income: { studentIncome: 5000 } }
+        expect: NOT_APPLICABLE
+
+  - id: NON_NEGATIVE_INCOME
+    severity: ERROR
+    description: Income values cannot be negative
+    expect: >-
+      (!has(income.studentIncome) || income.studentIncome >= 0) &&
+      (!has(income.parentIncome) || income.parentIncome >= 0)
+    field: income
+    message: "Income cannot be negative (student income: ${income.studentIncome}, parent income: ${income.parentIncome})"
+    remediation: Enter income as zero or a positive amount
+    tests:
+      - input: { income: { studentIncome: 5000, parentIncome: 65000 } }
+        expect: PASSED
+      - name: zero income
+        input: { income: { studentIncome: 0 } }
+        expect: PASSED
+      - name: negative student income
+        input: { income: { studentIncome: -1000 } }
+        expect: FAILED
+      - name: negative parent income
+        input: { income: { studentIncome: 100, parentIncome: -0.01 } }
+        expect: FAILED
+
+  - id: HOUSEHOLD_COLLEGE_COUNT
+    severity: ERROR
+    description: Number in college cannot exceed number in household
+    requires: [household.numberInHousehold, household.numberInCollege]
+    expect: household.numberInCollege <= household.numberInHousehold
+    field: household.numberInCollege
+    message: "Number in college (${household.numberInCollege}) cannot exceed number in household (${household.numberInHousehold})"
+    remediation: Correct either count; people in college are also counted in the household
+    tests:
+      - input: { household: { numberInHousehold: 4, numberInCollege: 1 } }
+        expect: PASSED
+      - name: equal counts
+        input: { household: { numberInHousehold: 2, numberInCollege: 2 } }
+        expect: PASSED
+      - input: { household: { numberInHousehold: 2, numberInCollege: 5 } }
+        expect: FAILED
+      - name: count missing
+        input: { household: { numberInHousehold: 2 } }
+        expect: NOT_APPLICABLE
+
+  - id: STATE_CODE
+    severity: ERROR
+    description: State of legal residence must be a valid US state abbreviation
+    requires: [stateOfResidence]
+    expect: stateOfResidence in lists.usStates
+    field: stateOfResidence
+    message: "'${stateOfResidence}' is not a valid US state abbreviation"
+    remediation: Use the two-letter postal abbreviation in capitals, e.g. CA
+    tests:
+      - input: { stateOfResidence: CA }
+        expect: PASSED
+      - name: territory
+        input: { stateOfResidence: PR }
+        expect: PASSED
+      - input: { stateOfResidence: XX }
+        expect: FAILED
+      - name: lower case
+        input: { stateOfResidence: ca }
+        expect: FAILED
+
+  - id: MARRIED_SPOUSE_INFO
+    severity: ERROR
+    description: Spouse information is required when the student is married
+    when: maritalStatus == "married"
+    expect: >-
+      has(spouseInfo.firstName) && !isBlank(spouseInfo.firstName) &&
+      has(spouseInfo.lastName) && !isBlank(spouseInfo.lastName) &&
+      has(spouseInfo.ssn) && !isBlank(spouseInfo.ssn)
+    field: spouseInfo
+    message: Spouse first name, last name and SSN are required for a married student
+    remediation: Enter the spouse's information, or check the marital status
+    tests:
+      - input:
+          maritalStatus: married
+          spouseInfo: { firstName: John, lastName: Smith, ssn: "987654321" }
+        expect: PASSED
+      - name: no spouse info
+        input: { maritalStatus: married }
+        expect: FAILED
+      - name: spouse SSN missing
+        input: { maritalStatus: married, spouseInfo: { firstName: John, lastName: Smith } }
+        expect: FAILED
+      - name: blank spouse name
+        input: { maritalStatus: married, spouseInfo: { firstName: " ", lastName: Smith, ssn: "987654321" } }
+        expect: FAILED
+      - name: single student
+        input: { maritalStatus: single }
+        expect: NOT_APPLICABLE
