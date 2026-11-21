@@ -20,7 +20,6 @@ public final class CompiledRule {
 
     private final String id;
     private final Severity severity;
-    private final String description;
     private final List<String> requires;
     private final CelRuntime.Program when;
     private final CelRuntime.Program expect;
@@ -28,12 +27,11 @@ public final class CompiledRule {
     private final String message;
     private final String remediation;
 
-    CompiledRule(String id, Severity severity, String description, List<String> requires,
+    CompiledRule(String id, Severity severity, List<String> requires,
             CelRuntime.Program when, CelRuntime.Program expect, String field, String message,
             String remediation) {
         this.id = id;
         this.severity = severity;
-        this.description = description;
         this.requires = List.copyOf(requires);
         this.when = when;
         this.expect = expect;
@@ -89,10 +87,6 @@ public final class CompiledRule {
 
     public Severity severity() {
         return severity;
-    }
-
-    public String description() {
-        return description;
     }
 
     public String field() {

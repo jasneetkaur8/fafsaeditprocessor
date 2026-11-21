@@ -366,4 +366,5 @@ performance. Places where I changed its direction:
 
 ## Time spent
 
-About 2 hours 15 minutes.
+About 2 hours 45 minutes. Much of the time went into setting up the development environment, and
+the work was spread out over the evening.

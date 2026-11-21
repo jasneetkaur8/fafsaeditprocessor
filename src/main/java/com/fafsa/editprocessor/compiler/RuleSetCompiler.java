@@ -171,7 +171,7 @@ public class RuleSetCompiler {
         if (errors.size() > errorsBefore) {
             return null;
         }
-        return new CompiledRule(id, rule.severity(), rule.description(), requires, when, expect,
+        return new CompiledRule(id, rule.severity(), requires, when, expect,
                 rule.field(), rule.message(), rule.remediation());
     }
 

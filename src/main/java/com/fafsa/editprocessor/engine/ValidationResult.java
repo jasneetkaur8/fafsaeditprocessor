@@ -1,6 +1,5 @@
 package com.fafsa.editprocessor.engine;
 
-import com.fafsa.editprocessor.ruleset.RuleOutcome;
 import java.util.List;
 
 /**
@@ -14,9 +13,5 @@ public record ValidationResult(String rulesetVersion, ApplicationStatus status, 
 
     public List<RuleResult> violations() {
         return results.stream().filter(RuleResult::isViolation).toList();
-    }
-
-    public int count(RuleOutcome outcome) {
-        return (int) results.stream().filter(r -> r.outcome() == outcome).count();
     }
 }
