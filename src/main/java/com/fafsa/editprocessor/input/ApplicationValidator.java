@@ -31,8 +31,8 @@ import org.springframework.stereotype.Component;
  *       fields, wrong types (each message says what is expected: a {@code yyyy-MM-dd} date, a
  *       whole number, an amount, text, or one of an enum's values), text where an object belongs.</li>
  *   <li><b>Bean Validation</b>: the annotations on {@link FafsaApplication}: required fields
- *       ({@code studentInfo} and its fields, {@code income}, {@code stateOfResidence}) and income
- *       amounts with at most 2 decimal places.</li>
+ *       ({@code studentInfo} and its fields, {@code income}, {@code stateOfResidence}) and household
+ *       counts greater than 0.</li>
  *   <li><b>Income</b>: at least one of {@code studentIncome} or {@code parentIncome}.</li>
  * </ol>
  * A field with a bad value is not also reported as missing.

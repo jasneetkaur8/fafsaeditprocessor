@@ -217,23 +217,38 @@ class FafsaEditResourceTest {
                 .andExpect(jsonPath("$.errors[0].problem").value("must have studentIncome or parentIncome"));
     }
 
+    /** Digits past the second decimal place are dropped (not rounded), as rule messages show. */
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', textBlock = """
-            3 decimal places        | {"studentIncome": 5000.123}                       | income.studentIncome
-            3 decimal places parent | {"studentIncome": 1, "parentIncome": 65000.005} | income.parentIncome
+            student income | {"studentIncome": -1000.129}                      | student income: -1000.12, parent income: not provided
+            parent income  | {"studentIncome": 1, "parentIncome": -65000.999} | student income: 1, parent income: -65000.99
             """)
-    void incomeAllowsAtMostTwoDecimalPlaces(String scenario, String incomeJson, String field) throws Exception {
+    void incomeBeyondTwoDecimalPlacesIsTruncated(String scenario, String incomeJson, String shown) throws Exception {
         mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(withIncome(incomeJson)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.violations[0].ruleId").value("NON_NEGATIVE_INCOME"))
+                .andExpect(jsonPath("$.violations[0].message").value("Income cannot be negative (" + shown + ")"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', textBlock = """
+            zero in household     | {"numberInHousehold": 0, "numberInCollege": 1}  | household.numberInHousehold
+            negative in college   | {"numberInHousehold": 3, "numberInCollege": -1} | household.numberInCollege
+            """)
+    void householdCountsMustBePositive(String scenario, String householdJson, String field) throws Exception {
+        String body = withIncome("{\"studentIncome\": 0}").replace("\"income\"", "\"household\": " + householdJson + ", \"income\"");
+
+        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[*].field").value(contains(field)))
-                .andExpect(jsonPath("$.errors[0].problem").value("must be an amount with at most 2 decimal places"));
+                .andExpect(jsonPath("$.errors[0].problem").value("must be greater than 0"));
     }
 
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', textBlock = """
             two decimal places      | {"studentIncome": 5000.25}
+            three decimal places    | {"studentIncome": 5000.129}
             one decimal place       | {"studentIncome": 5000.5}
-            trailing zeros          | {"studentIncome": 5000.100}
             student income only | {"studentIncome": 5000}
             parent income only  | {"parentIncome": 65000}
             """)

@@ -70,6 +70,16 @@ class ApplicationValidatorTest {
     }
 
     @Test
+    void incomeKeepsAtMostTwoDecimalPlaces() {
+        ValidatedApplication result = check(json("""
+                {%s, "income": {"studentIncome": 5000.129, "parentIncome": 12.5}, "stateOfResidence": "CA"}
+                """.formatted(STUDENT)));
+
+        assertThat(result.application().income())
+                .isEqualTo(new Income(new BigDecimal("5000.12"), new BigDecimal("12.5")));
+    }
+
+    @Test
     void parentIncomeAloneIsEnough() {
         ValidatedApplication result = check(json("""
                 {%s, "income": {"parentIncome": 65000}, "stateOfResidence": "CA"}

@@ -1,10 +1,11 @@
 package com.fafsa.editprocessor.input;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 
 /**
@@ -13,8 +14,8 @@ import java.time.LocalDate;
  * <p>{@link ApplicationValidator} binds the request to this record field by field and reports
  * every problem in one response: values of the wrong type (text for a number, a date not in
  * {@code yyyy-MM-dd} form, a {@link DependencyStatus} or {@link MaritalStatus} outside its values), missing
- * required information (the Bean Validation annotations below), income amounts with more than 2
- * decimal places, and income with no amount.
+ * required information and household counts below 1 (the Bean Validation annotations below), and
+ * income with no amount.
  * Other fields may be missing: {@link ApplicationValidator} defaults them, and the rules decide
  * on the rest.
  */
@@ -23,8 +24,8 @@ public record FafsaApplication(
         DependencyStatus dependencyStatus,
         MaritalStatus maritalStatus,
         SpouseInfo spouseInfo,
-        Household household,
-        @NotNull @Valid Income income,
+        @Valid Household household,
+        @NotNull Income income,
         @NotBlank String stateOfResidence) {
 
     /** Required, with every field: blank text counts as missing. */
@@ -42,16 +43,28 @@ public record FafsaApplication(
             String ssn) {
     }
 
+    /** Each count, when given, must be greater than 0. */
     public record Household(
-            Integer numberInHousehold,
-            Integer numberInCollege) {
+            @Positive Integer numberInHousehold,
+            @Positive Integer numberInCollege) {
     }
 
-    /** Required; {@link ApplicationValidator} also checks that at least one amount is provided. */
+    /**
+     * Required; {@link ApplicationValidator} also checks that at least one amount is provided.
+     * Amounts keep at most 2 decimal places: further digits are dropped, not rounded
+     * (5000.129 becomes 5000.12).
+     */
     public record Income(
-            @Digits(integer = 15, fraction = 2, message = MONEY) BigDecimal studentIncome,
-            @Digits(integer = 15, fraction = 2, message = MONEY) BigDecimal parentIncome) {
+            BigDecimal studentIncome,
+            BigDecimal parentIncome) {
 
-        static final String MONEY = "must be an amount with at most 2 decimal places";
+        public Income {
+            studentIncome = toCents(studentIncome);
+            parentIncome = toCents(parentIncome);
+        }
+
+        private static BigDecimal toCents(BigDecimal amount) {
+            return amount != null && amount.scale() > 2 ? amount.setScale(2, RoundingMode.DOWN) : amount;
+        }
     }
 }
