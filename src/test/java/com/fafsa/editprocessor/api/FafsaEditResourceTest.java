@@ -237,6 +237,22 @@ class FafsaEditResourceTest {
                 .andExpect(jsonPath("$.errors[0].problem").value("must have studentIncome or parentIncome"));
     }
 
+    /** An amount too large to be an income is an input error, before any rule runs. */
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', textBlock = """
+            huge exponent       | {"studentIncome": 1e400}               | income.studentIncome | must be at most 9999999999.99
+            just over the limit | {"parentIncome": 10000000000.00}       | income.parentIncome  | must be at most 9999999999.99
+            huge negative       | {"studentIncome": -1e400}              | income.studentIncome | must be at least -9999999999.99
+            """)
+    void incomeBeyondTheLimitIsInvalidInput(String scenario, String incomeJson, String field, String problem)
+            throws Exception {
+        mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(withIncome(incomeJson)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value("INVALID_INPUT"))
+                .andExpect(jsonPath("$.errors[*].field").value(contains(field)))
+                .andExpect(jsonPath("$.errors[0].problem").value(problem));
+    }
+
     /**
      * Digits past the second decimal place are dropped toward the lower amount, as rule messages
      * show, so a negative amount below one cent stays negative instead of becoming 0.00.

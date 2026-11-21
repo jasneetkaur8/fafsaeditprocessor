@@ -291,7 +291,8 @@ next step.
 
 - **Rules cannot run code**: CEL has no I/O and no access to Java, and always terminates, so a rule
   file cannot do anything except compute true or false.
-- **Strict input**: unknown fields and wrong types are rejected (section 1); batches are capped at
+- **Strict input**: unknown fields and wrong types are rejected (section 1); income amounts are
+  limited to ±9,999,999,999.99; batches are capped at
   `fafsa.validation.max-batch-size`.
 - **No personal data in logs or metrics**: logs hold statuses, rule ids and field names only;
   parser error messages, which can quote the request body, are not logged. Field names a caller
@@ -326,7 +327,9 @@ configuration.
 - **Household counts** default to 1 when missing (the student) and must be above 0.
 - **Income**: at least one of student or parent income must be given. Amounts keep 2 decimal
   places; further digits are dropped toward the lower amount (`5000.129` becomes `5000.12`,
-  `-0.001` becomes `-0.01`), so a negative amount can never become zero. Negative amounts pass the input checks so that
+  `-0.001` becomes `-0.01`), so a negative amount can never become zero. Each amount must be
+  within ±9,999,999,999.99 (a 400 otherwise): nothing larger is a plausible income, and without a
+  limit `1e400` becomes Infinity when the rules read it and passes every income rule. Negative amounts pass the input checks so that
   the `NON_NEGATIVE_INCOME` rule reports them with its message. Zero parent income counts as given.
 - **State** must be an upper-case postal abbreviation: the 50 states, DC, and the territories
   AS, GU, MP, PR, VI.
@@ -337,15 +340,15 @@ configuration.
 
 ## 12. Testing strategy
 
-Tests are layered so a failure points at its cause (96 tests, `./mvnw clean verify`):
+Tests are layered so a failure points at its cause (101 tests, `./mvnw clean verify`):
 
 | Layer | What it proves | Where |
 |---|---|---|
 | Embedded rule tests | Each of the 7 rules passes, fails and does not apply as intended (30 examples, run on every load) | `fafsa-2026-27.yaml` |
 | Compiler | Broken rule files are rejected with every problem listed; the real file compiles | `RuleSetCompilerTest` (10) |
 | Engine | Status from severities, `ERRORED` isolation, parallel = sequential results and order, metrics | `RuleEngineTest` (7) |
-| Input checks | Required fields, defaults, all problems reported together, income truncation | `ApplicationValidatorTest` (11) |
-| API end to end | The real rule file through HTTP: both sample applications, 20+ malformed-input cases, batch, response shape, logs without personal data, metrics | `FafsaEditResourceTest` (67) |
+| Input checks | Required fields, defaults, all problems reported together, income truncation | `ApplicationValidatorTest` (13) |
+| API end to end | The real rule file through HTTP: both sample applications, 20+ malformed-input cases, batch, response shape, logs without personal data, metrics | `FafsaEditResourceTest` (70) |
 
 The end-to-end tests use a fixed clock so the age rule gives the same answer on any day.
 

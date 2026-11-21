@@ -132,7 +132,8 @@ Empty lists are left out.
 - `dependencyStatus` is `dependent` or `independent` (default `independent`); `maritalStatus` is
   `single` or `married` (default `single`). Household counts are whole numbers above 0 (default 1).
 - Dates are `yyyy-MM-dd`. Income amounts keep 2 decimal places; further digits are dropped toward the
-  lower amount, so a negative amount stays negative (`-0.001` becomes `-0.01`).
+  lower amount, so a negative amount stays negative (`-0.001` becomes `-0.01`). Each amount must
+  be between -9,999,999,999.99 and 9,999,999,999.99.
 - Unknown fields and values of the wrong type (`"4"` for a number, `123` for text) are rejected.
 
 ## The rules

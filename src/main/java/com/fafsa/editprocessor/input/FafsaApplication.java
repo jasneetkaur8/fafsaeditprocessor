@@ -1,6 +1,8 @@
 package com.fafsa.editprocessor.input;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -25,7 +27,7 @@ public record FafsaApplication(
         MaritalStatus maritalStatus,
         SpouseInfo spouseInfo,
         @Valid Household household,
-        @NotNull Income income,
+        @NotNull @Valid Income income,
         @NotBlank String stateOfResidence) {
 
     /** Required, with every field: blank text counts as missing. */
@@ -54,10 +56,21 @@ public record FafsaApplication(
      * Amounts keep at most 2 decimal places. Further digits are dropped toward the lower amount
      * (5000.129 becomes 5000.12), so a negative amount stays negative: -0.001 becomes -0.01, not
      * 0.00, and the {@code NON_NEGATIVE_INCOME} rule still reports it.
+     *
+     * <p>Each amount must be within ±{@value #MAX_AMOUNT} (just under $10 billion). Anything larger is
+     * not a plausible income, and without a limit a value such as {@code 1e400} becomes Infinity when
+     * the rules read it as a number, and passes every income rule.
      */
     public record Income(
+            @DecimalMin(value = MIN_AMOUNT, message = "must be at least " + MIN_AMOUNT)
+            @DecimalMax(value = MAX_AMOUNT, message = "must be at most " + MAX_AMOUNT)
             BigDecimal studentIncome,
+            @DecimalMin(value = MIN_AMOUNT, message = "must be at least " + MIN_AMOUNT)
+            @DecimalMax(value = MAX_AMOUNT, message = "must be at most " + MAX_AMOUNT)
             BigDecimal parentIncome) {
+
+        public static final String MAX_AMOUNT = "9999999999.99";
+        public static final String MIN_AMOUNT = "-" + MAX_AMOUNT;
 
         public Income {
             studentIncome = toCents(studentIncome);

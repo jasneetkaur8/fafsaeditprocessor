@@ -129,6 +129,26 @@ class ApplicationValidatorTest {
     }
 
     @Test
+    void incomeBeyondTheLimitIsRejected() {
+        // 1e400 itself is covered end to end (FafsaEditResourceTest), where the app's mapper reads it exactly
+        assertThat(errorsOf("""
+                {%s, "income": {"studentIncome": 10000000000, "parentIncome": -10000000000}, "stateOfResidence": "CA"}
+                """.formatted(STUDENT))).containsExactly(
+                new InputError("income.parentIncome", "must be at least -9999999999.99"),
+                new InputError("income.studentIncome", "must be at most 9999999999.99"));
+    }
+
+    @Test
+    void incomeAtTheLimitIsAccepted() {
+        ValidatedApplication result = check(json("""
+                {%s, "income": {"studentIncome": 9999999999.99, "parentIncome": -9999999999.99}, "stateOfResidence": "CA"}
+                """.formatted(STUDENT)));
+
+        assertThat(result.application().income())
+                .isEqualTo(new Income(new BigDecimal("9999999999.99"), new BigDecimal("-9999999999.99")));
+    }
+
+    @Test
     void textWhereAnObjectBelongsIsNotAlsoReportedAsMissing() {
         assertThat(errorsOf("""
                 {"studentInfo": "Jane Smith", "income": {"studentIncome": 1}, "stateOfResidence": "CA"}
