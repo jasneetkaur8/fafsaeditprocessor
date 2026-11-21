@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: fafsaeditprocessor
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+fafsa:
+  rules:
+    # Rule set loaded at startup (Step 8). Point at an external file with
+    # FAFSA_RULES_LOCATION=file:/path/to/rules.yaml to change rules without rebuilding.
+    location: classpath:rules/fafsa-2026-27.yaml
+    # Where rule sets activated through the admin API are saved, so restarts keep them.
+    storage-dir: ./data/rulesets
+  validation:
+    max-batch-size: 1000
+
+logging:
+  level:
+    com.fafsa.editprocessor: INFO

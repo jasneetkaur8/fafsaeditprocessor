@@ -1,0 +1,36 @@
+# FAFSA edit rules, 2026-27 cycle.
+# Written in CEL (https://cel.dev). See RULE_AUTHORING.md for the format.
+#
+# Step 7: add the 7 required rules here, each with its own `tests`.
+#   1. STUDENT_AGE               student is at least 14
+#   2. SSN_FORMAT                SSN is exactly 9 digits
+#   3. DEPENDENT_PARENT_INCOME   parent income required when dependent
+#   4. NON_NEGATIVE_INCOME       income values are not negative
+#   5. HOUSEHOLD_COLLEGE_COUNT   numberInCollege <= numberInHousehold
+#   6. STATE_CODE                valid US state abbreviation
+#   7. MARRIED_SPOUSE_INFO       spouse info required when married
+
+rulesetVersion: "2026-27.0-draft"
+
+lists:
+  usStates: [AL, AK, AZ, AR, CA, CO, CT, DE, FL, GA, HI, ID, IL, IN, IA, KS, KY, LA, ME, MD,
+             MA, MI, MN, MS, MO, MT, NE, NV, NH, NJ, NM, NY, NC, ND, OH, OK, OR, PA, RI, SC,
+             SD, TN, TX, UT, VT, VA, WA, WV, WI, WY, DC, AS, GU, MP, PR, VI]
+
+rules: []
+
+# Example of the format (remove once real rules exist):
+#
+#  - id: HOUSEHOLD_COLLEGE_COUNT
+#    severity: ERROR
+#    description: Number in college cannot exceed number in household
+#    requires: [household.numberInHousehold, household.numberInCollege]
+#    expect: household.numberInCollege <= household.numberInHousehold
+#    field: household.numberInCollege
+#    message: "Number in college (${household.numberInCollege}) cannot exceed number in household (${household.numberInHousehold})"
+#    remediation: Correct either count; people in college are also counted in the household
+#    tests:
+#      - input: { household: { numberInHousehold: 2, numberInCollege: 5 } }
+#        expect: FAILED
+#      - input: { household: { numberInHousehold: 4, numberInCollege: 1 } }
+#        expect: PASSED
